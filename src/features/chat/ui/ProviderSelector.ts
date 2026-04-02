@@ -36,76 +36,96 @@ export class ProviderSelector {
   }
 
   private getCurrentProviderName(): string {
-    const providers = this.getAvailableProviders();
-    const currentId = this.getCurrentProviderId();
-    const provider = providers.find(p => p.id === currentId);
-    return provider?.name || 'Default';
+    try {
+      const providers = this.getAvailableProviders();
+      const currentId = this.getCurrentProviderId();
+      const provider = providers.find(p => p.id === currentId);
+      return provider?.name || 'Default';
+    } catch {
+      return 'Default';
+    }
   }
 
   private getCurrentProviderId(): string {
-    // Find which snippet is currently applied by checking if env vars match
-    const currentEnvVars = this.plugin.getActiveEnvironmentVariables();
-    if (!currentEnvVars) return '';
-
-    for (const snippet of this.plugin.settings.envSnippets) {
-      if (snippet.envVars === currentEnvVars) {
-        return snippet.id;
+    try {
+      const currentEnvVars = this.plugin.getActiveEnvironmentVariables();
+      if (!currentEnvVars || currentEnvVars.trim() === '') {
+        return '';
       }
+
+      // Normalize env vars for comparison (remove trailing whitespace, normalize line endings)
+      const normalizedCurrent = currentEnvVars.trim().replace(/\r\n/g, '\n');
+
+      for (const snippet of this.plugin.settings.envSnippets) {
+        const normalizedSnippet = snippet.envVars.trim().replace(/\r\n/g, '\n');
+        if (normalizedSnippet === normalizedCurrent) {
+          return snippet.id;
+        }
+      }
+    } catch {
+      // Fall through to return empty string
     }
     return '';
   }
 
   private render(): void {
-    this.container.empty();
+    try {
+      this.container.empty();
 
-    this.buttonEl = this.container.createDiv({ cls: 'claudian-provider-btn' });
-    this.updateDisplay();
+      this.buttonEl = this.container.createDiv({ cls: 'claudian-provider-btn' });
+      this.buttonEl.setText(this.getCurrentProviderName());
 
-    this.dropdownEl = this.container.createDiv({ cls: 'claudian-provider-dropdown' });
-    this.renderOptions();
+      this.dropdownEl = this.container.createDiv({ cls: 'claudian-provider-dropdown' });
+      this.renderOptions();
 
-    // Toggle dropdown on button click
-    this.buttonEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.toggleDropdown();
-    });
+      // Toggle dropdown on button click
+      this.buttonEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleDropdown();
+      });
 
-    // Close dropdown when clicking outside
-    document.addEventListener('click', () => {
-      this.closeDropdown();
-    });
-  }
-
-  private updateDisplay(): void {
-    if (!this.buttonEl) return;
-    this.buttonEl.setText(this.getCurrentProviderName());
+      // Close dropdown when clicking outside
+      document.addEventListener('click', () => {
+        this.closeDropdown();
+      });
+    } catch (error) {
+      console.error('ProviderSelector render error:', error);
+    }
   }
 
   private renderOptions(): void {
     if (!this.dropdownEl) return;
     this.dropdownEl.empty();
 
-    const providers = this.getAvailableProviders();
-    const currentId = this.getCurrentProviderId();
+    try {
+      const providers = this.getAvailableProviders();
+      const currentId = this.getCurrentProviderId();
 
-    for (const provider of providers) {
-      const option = this.dropdownEl.createDiv({ cls: 'claudian-provider-option' });
-      if (provider.id === currentId) {
-        option.addClass('selected');
+      for (const provider of providers) {
+        const option = this.dropdownEl.createDiv({ cls: 'claudian-provider-option' });
+        if (provider.id === currentId) {
+          option.addClass('selected');
+        }
+
+        option.createSpan({ text: provider.name });
+
+        option.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          try {
+            const snippet = provider.id
+              ? this.plugin.settings.envSnippets.find(s => s.id === provider.id)
+              : null;
+            await this.callbacks.onProviderChange(snippet || null);
+            this.buttonEl?.setText(this.getCurrentProviderName());
+            this.renderOptions();
+            this.closeDropdown();
+          } catch (error) {
+            console.error('Provider change error:', error);
+          }
+        });
       }
-
-      option.createSpan({ text: provider.name });
-
-      option.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const snippet = provider.id
-          ? this.plugin.settings.envSnippets.find(s => s.id === provider.id)
-          : null;
-        await this.callbacks.onProviderChange(snippet || null);
-        this.updateDisplay();
-        this.renderOptions();
-        this.closeDropdown();
-      });
+    } catch (error) {
+      console.error('renderOptions error:', error);
     }
   }
 
