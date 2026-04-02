@@ -25,7 +25,7 @@ export class ProviderSelector {
 
   private getAvailableProviders(): { id: string; name: string }[] {
     const providers: { id: string; name: string }[] = [
-      { id: '', name: 'Default' }
+      { id: '', name: 'Claude' }
     ];
 
     for (const snippet of this.plugin.settings.envSnippets) {
@@ -40,9 +40,9 @@ export class ProviderSelector {
       const providers = this.getAvailableProviders();
       const currentId = this.getCurrentProviderId();
       const provider = providers.find(p => p.id === currentId);
-      return provider?.name || 'Default';
+      return provider?.name || 'Claude';
     } catch {
-      return 'Default';
+      return 'Claude';
     }
   }
 
