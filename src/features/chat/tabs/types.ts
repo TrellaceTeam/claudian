@@ -21,6 +21,7 @@ import type {
   ContextUsageMeter,
   ExternalContextSelector,
   FileContextManager,
+  FileDropContextManager,
   ImageContextManager,
   InstructionModeManager,
   McpServerSelector,
@@ -126,6 +127,7 @@ export interface TabServices {
  */
 export interface TabUIComponents {
   fileContextManager: FileContextManager | null;
+  fileDropContextManager: FileDropContextManager | null;
   imageContextManager: ImageContextManager | null;
   modelSelector: ModelSelector | null;
   thinkingBudgetSelector: ThinkingBudgetSelector | null;

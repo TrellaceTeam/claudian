@@ -1,5 +1,6 @@
 export { type BangBashModeCallbacks, BangBashModeManager, type BangBashModeState } from './BangBashModeManager';
 export { type FileContextCallbacks,FileContextManager } from './FileContext';
+export { buildFileDropMessage, DROP_ZONE_DIR, type FileDropCallbacks, FileDropContextManager, isImageContextFile } from './FileDropContext';
 export { type ImageContextCallbacks,ImageContextManager } from './ImageContext';
 export {
   type AddExternalContextResult,

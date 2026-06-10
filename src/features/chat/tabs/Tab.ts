@@ -30,6 +30,7 @@ import {
   BangBashModeManager as BangBashModeManagerClass,
   createInputToolbar,
   FileContextManager,
+  FileDropContextManager,
   ImageContextManager,
   InstructionModeManager as InstructionModeManagerClass,
   NavigationSidebar,
@@ -115,6 +116,7 @@ export function createTab(options: TabCreateOptions): TabData {
     },
     ui: {
       fileContextManager: null,
+      fileDropContextManager: null,
       imageContextManager: null,
       modelSelector: null,
       thinkingBudgetSelector: null,
@@ -341,6 +343,19 @@ function initializeContextManagers(tab: TabData, plugin: ClaudianPlugin): void {
     },
     dom.contextRowEl
   );
+
+  // File drop manager - non-image drops are saved to the vault drop zone,
+  // then a routing message is auto-sent through the normal send path.
+  // Attached after ImageContextManager so image drops are handled first.
+  tab.ui.fileDropContextManager = new FileDropContextManager(app, {
+    sendMessage: async (content) => {
+      await tab.controllers.inputController?.sendMessage({ content });
+    },
+  });
+  const fileDropZoneEl = dom.inputContainerEl.querySelector('.claudian-input-wrapper') as HTMLElement | null;
+  if (fileDropZoneEl) {
+    tab.ui.fileDropContextManager.attach(fileDropZoneEl);
+  }
 }
 
 /**
