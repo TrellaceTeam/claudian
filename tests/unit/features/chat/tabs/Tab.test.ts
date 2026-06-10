@@ -200,6 +200,9 @@ jest.mock('@/features/chat/ui', () => ({
     mockFileContextManager = createMockFileContextManager();
     return mockFileContextManager;
   }),
+  FileDropContextManager: jest.fn().mockImplementation(() => ({
+    attach: jest.fn(),
+  })),
   ImageContextManager: jest.fn().mockImplementation(() => {
     mockImageContextManager = createMockImageContextManager();
     return mockImageContextManager;
