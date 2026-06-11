@@ -351,6 +351,9 @@ function initializeContextManagers(tab: TabData, plugin: ClaudianPlugin): void {
     app,
     {
       onFilesChanged: () => {
+        tab.controllers.selectionController?.updateContextRowVisibility();
+        tab.controllers.browserSelectionController?.updateContextRowVisibility();
+        tab.controllers.canvasSelectionController?.updateContextRowVisibility();
         autoResizeTextarea(dom.inputEl);
         tab.renderer?.scrollToBottomIfNeeded();
       },

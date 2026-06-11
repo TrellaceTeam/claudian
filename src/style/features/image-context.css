@@ -9,6 +9,15 @@
   margin-bottom: 4px;
 }
 
+/* Staged dropped-file chips share the image preview layout and chip styles */
+.claudian-file-drop-preview {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+  margin-bottom: 4px;
+}
+
 /* Individual image preview chip */
 .claudian-image-chip {
   display: flex;

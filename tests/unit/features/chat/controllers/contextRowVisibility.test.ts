@@ -1,6 +1,9 @@
 import { updateContextRowHasContent } from '@/features/chat/controllers/contextRowVisibility';
 
-function createContextRow(browserIndicator: HTMLElement | null): HTMLElement {
+function createContextRow(
+  browserIndicator: HTMLElement | null,
+  fileDropPreview: { style: { display: string } } | null = null
+): HTMLElement {
   const editorIndicator = { style: { display: 'none' } };
   const canvasIndicator = { style: { display: 'none' } };
   const fileIndicator = { style: { display: 'none' } };
@@ -11,6 +14,7 @@ function createContextRow(browserIndicator: HTMLElement | null): HTMLElement {
     ['.claudian-canvas-indicator', canvasIndicator],
     ['.claudian-file-indicator', fileIndicator],
     ['.claudian-image-preview', imagePreview],
+    ['.claudian-file-drop-preview', fileDropPreview],
   ]);
 
   return {
@@ -36,5 +40,21 @@ describe('updateContextRowHasContent', () => {
     updateContextRowHasContent(contextRowEl);
 
     expect((contextRowEl.classList.toggle as jest.Mock)).toHaveBeenCalledWith('has-content', true);
+  });
+
+  it('treats staged file-drop chips as visible content', () => {
+    const contextRowEl = createContextRow(null, { style: { display: 'flex' } });
+
+    updateContextRowHasContent(contextRowEl);
+
+    expect((contextRowEl.classList.toggle as jest.Mock)).toHaveBeenCalledWith('has-content', true);
+  });
+
+  it('keeps the row hidden when the file-drop preview is collapsed', () => {
+    const contextRowEl = createContextRow(null, { style: { display: 'none' } });
+
+    updateContextRowHasContent(contextRowEl);
+
+    expect((contextRowEl.classList.toggle as jest.Mock)).toHaveBeenCalledWith('has-content', false);
   });
 });
