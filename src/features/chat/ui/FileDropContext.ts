@@ -5,9 +5,12 @@ import * as path from 'path';
 /** Vault folder where dropped files are staged for routing. */
 export const DROP_ZONE_DIR = 'context/drop-zone';
 
+/** Notice shown when a folder is dropped (folders are not supported). */
+export const FOLDER_DROP_NOTICE = 'Folders are not supported. Drop individual files.';
+
 /**
- * Message sent to Claude after a single file is dropped.
- * `{path}` is replaced with the vault-relative path of the saved file.
+ * Routing message sent when the user presses Enter with staged files and an
+ * empty input. `{path}` is replaced with the vault-relative path.
  */
 export const FILE_DROP_MESSAGE_SINGLE =
   'I just dropped "{path}" into the vault. Use the file-router skill flow: ' +
@@ -15,7 +18,7 @@ export const FILE_DROP_MESSAGE_SINGLE =
   'and file it after I confirm. If it is binary, route it per the Drive policy.';
 
 /**
- * Message sent to Claude after multiple files are dropped in one gesture.
+ * Multi-file variant of the empty-send routing message.
  * `{paths}` is replaced with a bulleted list of vault-relative paths.
  */
 export const FILE_DROP_MESSAGE_MULTI =
@@ -24,13 +27,22 @@ export const FILE_DROP_MESSAGE_MULTI =
   'propose the destination, and file it after I confirm. ' +
   'If any of them is binary, route it per the Drive policy.';
 
-/** Builds the auto-sent routing message for one or more saved vault paths. */
+/** Builds the routing message for an empty send with staged files. */
 export function buildFileDropMessage(savedPaths: string[]): string {
   if (savedPaths.length === 1) {
     return FILE_DROP_MESSAGE_SINGLE.replace('{path}', savedPaths[0]);
   }
   const list = savedPaths.map((p) => `- ${p}`).join('\n');
   return FILE_DROP_MESSAGE_MULTI.replace('{paths}', list);
+}
+
+/**
+ * Builds the note appended to a typed message so Claude knows which files
+ * the user just dropped (already saved in the drop zone).
+ */
+export function buildStagedFilesNote(stagedPaths: string[]): string {
+  const list = stagedPaths.map((p) => `- ${p}`).join('\n');
+  return `Files I just dropped into the vault drop zone (read them if relevant):\n${list}`;
 }
 
 /**
@@ -90,9 +102,22 @@ function sanitizeFilename(filename: string, now: () => number): string {
   return trimmed || `dropped-file-${now()}`;
 }
 
+/** A non-image file saved to the drop zone, waiting to ride the next message. */
+export interface StagedDroppedFile {
+  id: string;
+  /** Vault-relative path where the file was saved. */
+  path: string;
+  name: string;
+  size: number;
+}
+
 export interface FileDropCallbacks {
-  /** Sends a user message through the normal chat send path. */
-  sendMessage: (content: string) => void | Promise<void>;
+  /** Notifies the tab that the staged file set changed. */
+  onFilesChanged?: () => void;
+}
+
+interface DirectoryEntryLike {
+  isDirectory?: boolean;
 }
 
 /**
@@ -101,16 +126,25 @@ export interface FileDropCallbacks {
  * Images are intentionally ignored here: ImageContextManager attaches its own
  * drop handler on the same element (registered first) and keeps handling them
  * exactly as before. Every other file is saved to the vault drop zone
- * (context/drop-zone/) with collision-safe naming, then a single routing
- * message is auto-sent so Claude runs the file-router flow.
+ * (context/drop-zone/) with collision-safe naming and STAGED: a chip shows in
+ * the input area and nothing is sent. The staged paths ride along with the
+ * user's next message (InputController), or an empty send triggers the
+ * file-router flow. Folders are rejected with a notice.
  */
 export class FileDropContextManager {
   private app: App;
   private callbacks: FileDropCallbacks;
+  private stagedFiles: Map<string, StagedDroppedFile> = new Map();
+  private previewEl: HTMLElement | null = null;
+  private idCounter = 0;
 
-  constructor(app: App, callbacks: FileDropCallbacks) {
+  constructor(app: App, callbacks: FileDropCallbacks = {}, previewContainerEl?: HTMLElement) {
     this.app = app;
     this.callbacks = callbacks;
+    if (previewContainerEl) {
+      this.previewEl = previewContainerEl.createDiv({ cls: 'claudian-file-drop-preview' });
+      this.previewEl.style.display = 'none';
+    }
   }
 
   /** Attaches the drop handler. Call after ImageContextManager is wired. */
@@ -120,18 +154,31 @@ export class FileDropContextManager {
     });
   }
 
-  private async handleDrop(e: DragEvent): Promise<void> {
-    const files = e.dataTransfer?.files;
-    if (!files || files.length === 0) return;
+  getStagedFiles(): StagedDroppedFile[] {
+    return Array.from(this.stagedFiles.values());
+  }
 
-    const nonImageFiles: File[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (!isImageContextFile(file)) {
-        nonImageFiles.push(file);
-      }
-    }
-    if (nonImageFiles.length === 0) return;
+  getStagedPaths(): string[] {
+    return this.getStagedFiles().map((f) => f.path);
+  }
+
+  hasStagedFiles(): boolean {
+    return this.stagedFiles.size > 0;
+  }
+
+  /** Unstages everything. Saved files stay put: the drop zone IS the staging area. */
+  clearStagedFiles(): void {
+    if (this.stagedFiles.size === 0) return;
+    this.stagedFiles.clear();
+    this.updatePreview();
+    this.callbacks.onFilesChanged?.();
+  }
+
+  private async handleDrop(e: DragEvent): Promise<void> {
+    const { files, folderCount } = this.collectDroppedFiles(e);
+
+    const nonImageFiles = files.filter((f) => !isImageContextFile(f));
+    if (folderCount === 0 && nonImageFiles.length === 0) return;
 
     // ImageContextManager's handler already calls preventDefault for file
     // drops; repeat it here defensively so non-image drops never fall through
@@ -139,11 +186,22 @@ export class FileDropContextManager {
     e.preventDefault();
     e.stopPropagation();
 
-    const savedPaths: string[] = [];
+    if (folderCount > 0) {
+      new Notice(FOLDER_DROP_NOTICE);
+    }
+
+    let stagedAny = false;
     for (const file of nonImageFiles) {
       try {
         const savedPath = await this.saveToDropZone(file);
-        savedPaths.push(savedPath);
+        const id = this.generateId();
+        this.stagedFiles.set(id, {
+          id,
+          path: savedPath,
+          name: savedPath.slice(DROP_ZONE_DIR.length + 1),
+          size: file.size,
+        });
+        stagedAny = true;
         new Notice(`Saved to drop-zone: ${savedPath.slice(DROP_ZONE_DIR.length + 1)}`);
       } catch (error) {
         const detail = error instanceof Error ? ` (${error.message})` : '';
@@ -151,9 +209,43 @@ export class FileDropContextManager {
       }
     }
 
-    if (savedPaths.length > 0) {
-      await this.callbacks.sendMessage(buildFileDropMessage(savedPaths));
+    if (stagedAny) {
+      this.updatePreview();
+      this.callbacks.onFilesChanged?.();
     }
+  }
+
+  /**
+   * Collects dropped files, preferring DataTransfer.items (which can detect
+   * folders via webkitGetAsEntry) and falling back to DataTransfer.files.
+   */
+  private collectDroppedFiles(e: DragEvent): { files: File[]; folderCount: number } {
+    const items = e.dataTransfer?.items;
+    if (items && items.length > 0) {
+      const files: File[] = [];
+      let folderCount = 0;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind !== 'file') continue;
+        const entry = (
+          item as { webkitGetAsEntry?: () => DirectoryEntryLike | null }
+        ).webkitGetAsEntry?.();
+        if (entry?.isDirectory) {
+          folderCount += 1;
+          continue;
+        }
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+      return { files, folderCount };
+    }
+
+    const list = e.dataTransfer?.files;
+    const files: File[] = [];
+    if (list) {
+      for (let i = 0; i < list.length; i++) files.push(list[i]);
+    }
+    return { files, folderCount: 0 };
   }
 
   private async saveToDropZone(file: File): Promise<string> {
@@ -181,5 +273,68 @@ export class FileDropContextManager {
         await adapter.mkdir(current);
       }
     }
+  }
+
+  // ============================================
+  // Private: staged-file chips (mirrors image chips)
+  // ============================================
+
+  private updatePreview(): void {
+    if (!this.previewEl) return;
+    this.previewEl.empty();
+
+    if (this.stagedFiles.size === 0) {
+      this.previewEl.style.display = 'none';
+      return;
+    }
+
+    this.previewEl.style.display = 'flex';
+    for (const [id, file] of this.stagedFiles) {
+      this.renderChip(id, file);
+    }
+  }
+
+  private renderChip(id: string, file: StagedDroppedFile): void {
+    if (!this.previewEl) return;
+    const chipEl = this.previewEl.createDiv({ cls: 'claudian-image-chip claudian-file-drop-chip' });
+
+    const infoEl = chipEl.createDiv({ cls: 'claudian-image-info' });
+    const nameEl = infoEl.createSpan({ cls: 'claudian-image-name' });
+    nameEl.setText(this.truncateName(file.name, 24));
+    nameEl.setAttribute('title', file.path);
+
+    const sizeEl = infoEl.createSpan({ cls: 'claudian-image-size' });
+    sizeEl.setText(this.formatSize(file.size));
+
+    const removeEl = chipEl.createSpan({ cls: 'claudian-image-remove' });
+    removeEl.setText('×');
+    removeEl.setAttribute('aria-label', 'Remove file');
+
+    removeEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.stagedFiles.delete(id);
+      this.updatePreview();
+      this.callbacks.onFilesChanged?.();
+    });
+  }
+
+  private generateId(): string {
+    this.idCounter += 1;
+    return `drop-${Date.now()}-${this.idCounter}`;
+  }
+
+  private truncateName(name: string, maxLen: number): string {
+    if (name.length <= maxLen) return name;
+    const ext = path.extname(name);
+    const base = name.slice(0, name.length - ext.length);
+    const truncatedBase = base.slice(0, maxLen - ext.length - 3);
+    return `${truncatedBase}...${ext}`;
+  }
+
+  private formatSize(bytes: number): string {
+    if (!bytes && bytes !== 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 }

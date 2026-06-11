@@ -98,7 +98,7 @@ export class ImageContextManager {
     svg.appendChild(polyline);
     svg.appendChild(line);
     dropContent.appendChild(svg);
-    dropContent.createSpan({ text: 'Drop image here' });
+    dropContent.createSpan({ text: 'Drop file here' });
 
     const dropZone = inputWrapper;
 

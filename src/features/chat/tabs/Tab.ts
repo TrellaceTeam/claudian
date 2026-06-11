@@ -344,14 +344,19 @@ function initializeContextManagers(tab: TabData, plugin: ClaudianPlugin): void {
     dom.contextRowEl
   );
 
-  // File drop manager - non-image drops are saved to the vault drop zone,
-  // then a routing message is auto-sent through the normal send path.
+  // File drop manager - non-image drops are saved to the vault drop zone and
+  // staged as chips; they ride along with the next message the user sends.
   // Attached after ImageContextManager so image drops are handled first.
-  tab.ui.fileDropContextManager = new FileDropContextManager(app, {
-    sendMessage: async (content) => {
-      await tab.controllers.inputController?.sendMessage({ content });
+  tab.ui.fileDropContextManager = new FileDropContextManager(
+    app,
+    {
+      onFilesChanged: () => {
+        autoResizeTextarea(dom.inputEl);
+        tab.renderer?.scrollToBottomIfNeeded();
+      },
     },
-  });
+    dom.contextRowEl
+  );
   const fileDropZoneEl = dom.inputContainerEl.querySelector('.claudian-input-wrapper') as HTMLElement | null;
   if (fileDropZoneEl) {
     tab.ui.fileDropContextManager.attach(fileDropZoneEl);
@@ -873,6 +878,7 @@ export function initializeTabControllers(
     getWelcomeEl: () => dom.welcomeEl,
     getMessagesEl: () => dom.messagesEl,
     getFileContextManager: () => ui.fileContextManager,
+    getFileDropContextManager: () => ui.fileDropContextManager,
     getImageContextManager: () => ui.imageContextManager,
     getMcpServerSelector: () => ui.mcpServerSelector,
     getExternalContextSelector: () => ui.externalContextSelector,

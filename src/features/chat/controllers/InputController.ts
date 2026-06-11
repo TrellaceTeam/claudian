@@ -24,6 +24,7 @@ import type { TitleGenerationService } from '../services/TitleGenerationService'
 import type { ChatState } from '../state/ChatState';
 import type { QueryOptions } from '../state/types';
 import type { AddExternalContextResult, FileContextManager, ImageContextManager, InstructionModeManager, McpServerSelector, StatusPanel } from '../ui';
+import { buildFileDropMessage, buildStagedFilesNote, type FileDropContextManager } from '../ui/FileDropContext';
 import type { BrowserSelectionController } from './BrowserSelectionController';
 import type { CanvasSelectionController } from './CanvasSelectionController';
 import type { ConversationController } from './ConversationController';
@@ -49,6 +50,7 @@ export interface InputControllerDeps {
   getWelcomeEl: () => HTMLElement | null;
   getMessagesEl: () => HTMLElement;
   getFileContextManager: () => FileContextManager | null;
+  getFileDropContextManager: () => FileDropContextManager | null;
   getImageContextManager: () => ImageContextManager | null;
   getMcpServerSelector: () => McpServerSelector | null;
   getExternalContextSelector: () => {
@@ -123,14 +125,16 @@ export class InputController {
     const inputEl = this.deps.getInputEl();
     const imageContextManager = this.deps.getImageContextManager();
     const fileContextManager = this.deps.getFileContextManager();
+    const fileDropContextManager = this.deps.getFileDropContextManager();
     const mcpServerSelector = this.deps.getMcpServerSelector();
     const externalContextSelector = this.deps.getExternalContextSelector();
 
     const contentOverride = options?.content;
     const shouldUseInput = contentOverride === undefined;
-    const content = (contentOverride ?? inputEl.value).trim();
+    let content = (contentOverride ?? inputEl.value).trim();
     const hasImages = imageContextManager?.hasImages() ?? false;
-    if (!content && !hasImages) return;
+    const hasStagedFiles = shouldUseInput && (fileDropContextManager?.hasStagedFiles() ?? false);
+    if (!content && !hasImages && !hasStagedFiles) return;
 
     // Clear completed/error/orphaned subagents from previous responses
     this.deps.getStatusPanel()?.clearTerminalSubagents();
@@ -144,6 +148,19 @@ export class InputController {
       }
       await this.executeBuiltInCommand(builtInCmd.command.action, builtInCmd.args);
       return;
+    }
+
+    // Staged dropped files ride along with the user's message; a bare send
+    // falls back to the file-router flow. Slash commands leave them staged
+    // so a command never gets file paths appended to its arguments.
+    if (hasStagedFiles && !content.startsWith('/')) {
+      const stagedPaths = fileDropContextManager?.getStagedPaths() ?? [];
+      if (stagedPaths.length > 0) {
+        content = content
+          ? `${content}\n\n${buildStagedFilesNote(stagedPaths)}`
+          : buildFileDropMessage(stagedPaths);
+        fileDropContextManager?.clearStagedFiles();
+      }
     }
 
     // If agent is working, queue the message instead of dropping it

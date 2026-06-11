@@ -3,6 +3,7 @@ import { Notice } from 'obsidian';
 
 import { InputController, type InputControllerDeps } from '@/features/chat/controllers/InputController';
 import { ChatState } from '@/features/chat/state/ChatState';
+import { buildFileDropMessage, buildStagedFilesNote } from '@/features/chat/ui/FileDropContext';
 import { ResumeSessionDropdown } from '@/shared/components/ResumeSessionDropdown';
 
 jest.mock('@/shared/components/ResumeSessionDropdown', () => ({
@@ -152,6 +153,7 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
       transformContextMentions: jest.fn().mockImplementation((text: string) => text),
     }) as any,
     getImageContextManager: () => imageContextManager as any,
+    getFileDropContextManager: () => null,
     getMcpServerSelector: () => null,
     getExternalContextSelector: () => null,
     getInstructionModeManager: () => null,
@@ -2115,5 +2117,84 @@ describe('InputController - Message Queue', () => {
       await expect(controller.sendMessage()).resolves.not.toThrow();
       expect(mockAgentService.query).toHaveBeenCalled();
     });
+  });
+});
+
+describe('InputController - Staged dropped files', () => {
+  function createStagedManager(paths: string[]) {
+    return {
+      hasStagedFiles: jest.fn().mockReturnValue(paths.length > 0),
+      getStagedPaths: jest.fn().mockReturnValue(paths),
+      clearStagedFiles: jest.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('appends the staged-files note to a typed message and clears staging', async () => {
+    const fileDropManager = createStagedManager(['context/drop-zone/report.pdf']);
+    const deps = createSendableDeps({ getFileDropContextManager: () => fileDropManager as any });
+    (deps.getInputEl() as any).value = 'Summarize the PDF for me';
+    const controller = new InputController(deps);
+
+    await controller.sendMessage();
+
+    expect(deps.state.messages[0].content).toContain('Summarize the PDF for me');
+    expect(deps.state.messages[0].content).toContain(
+      buildStagedFilesNote(['context/drop-zone/report.pdf'])
+    );
+    expect(fileDropManager.clearStagedFiles).toHaveBeenCalled();
+  });
+
+  it('sends the file-router message when input is empty but files are staged', async () => {
+    const fileDropManager = createStagedManager(['context/drop-zone/report.pdf']);
+    const deps = createSendableDeps({ getFileDropContextManager: () => fileDropManager as any });
+    const controller = new InputController(deps);
+
+    await controller.sendMessage();
+
+    expect(deps.state.messages[0].content).toBe(
+      buildFileDropMessage(['context/drop-zone/report.pdf'])
+    );
+    expect(fileDropManager.clearStagedFiles).toHaveBeenCalled();
+  });
+
+  it('leaves files staged when sending a slash command', async () => {
+    const fileDropManager = createStagedManager(['context/drop-zone/report.pdf']);
+    const deps = createSendableDeps({ getFileDropContextManager: () => fileDropManager as any });
+    (deps.getInputEl() as any).value = '/mycommand do something';
+    const controller = new InputController(deps);
+
+    await controller.sendMessage();
+
+    expect(deps.state.messages[0].content).toBe('/mycommand do something');
+    expect(fileDropManager.clearStagedFiles).not.toHaveBeenCalled();
+  });
+
+  it('does not consume staged files for programmatic content sends', async () => {
+    const fileDropManager = createStagedManager(['context/drop-zone/report.pdf']);
+    const deps = createSendableDeps({ getFileDropContextManager: () => fileDropManager as any });
+    const controller = new InputController(deps);
+
+    await controller.sendMessage({ content: 'programmatic message' });
+
+    expect(deps.state.messages[0].content).toBe('programmatic message');
+    expect(fileDropManager.clearStagedFiles).not.toHaveBeenCalled();
+  });
+
+  it('queues the composed content when streaming', async () => {
+    const fileDropManager = createStagedManager(['context/drop-zone/report.pdf']);
+    const deps = createSendableDeps({ getFileDropContextManager: () => fileDropManager as any });
+    deps.state.isStreaming = true;
+    (deps.getInputEl() as any).value = 'question about the file';
+    const controller = new InputController(deps);
+
+    await controller.sendMessage();
+
+    expect(deps.state.queuedMessage?.content).toContain('question about the file');
+    expect(deps.state.queuedMessage?.content).toContain('- context/drop-zone/report.pdf');
+    expect(fileDropManager.clearStagedFiles).toHaveBeenCalled();
   });
 });
