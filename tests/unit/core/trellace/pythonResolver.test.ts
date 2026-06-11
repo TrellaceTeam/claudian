@@ -99,6 +99,45 @@ describe('resolvePythonPath', () => {
       expect(resolvePythonPath(deps)).toBe(`${programFiles}\\Python312\\python.exe`);
     });
 
+    it('falls back to querying python on the GUI PATH (Microsoft Store python)', () => {
+      const storePath =
+        'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe';
+      const deps = createDeps({
+        platform: 'win32',
+        env: { SystemRoot: 'C:\\Windows' },
+        // fileExists stays false: stat on app-execution aliases is unreliable,
+        // so a successful execution must be trusted on its own.
+        execText: (file, args) =>
+          file === 'python' && args.join(' ') === '-c import sys; print(sys.executable)'
+            ? storePath
+            : null,
+      });
+
+      expect(resolvePythonPath(deps)).toBe(storePath);
+    });
+
+    it('tries python3 on PATH when python is not available', () => {
+      const deps = createDeps({
+        platform: 'win32',
+        execText: (file) => (file === 'python3' ? 'C:\\store\\python.exe' : null),
+      });
+
+      expect(resolvePythonPath(deps)).toBe('C:\\store\\python.exe');
+    });
+
+    it('prefers an install-root scan hit over the PATH query', () => {
+      const programFiles = 'C:\\Program Files';
+      const deps = createDeps({
+        platform: 'win32',
+        env: { ProgramFiles: programFiles },
+        listDir: (p) => (p === programFiles ? ['Python312'] : []),
+        fileExists: (p) => p === `${programFiles}\\Python312\\python.exe`,
+        execText: (file) => (file === 'python' ? 'C:\\store\\python.exe' : null),
+      });
+
+      expect(resolvePythonPath(deps)).toBe(`${programFiles}\\Python312\\python.exe`);
+    });
+
     it('returns null when nothing resolves', () => {
       expect(resolvePythonPath(createDeps({ platform: 'win32' }))).toBeNull();
     });

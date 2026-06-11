@@ -66,9 +66,13 @@ backslashes are escape characters). Resolution order:
    `sys.executable` of the default Python 3.
 3. Windows: scan `%LOCALAPPDATA%\Programs\Python`, `%ProgramFiles%`,
    `%ProgramFiles(x86)%`, and `C:\` for `Python3*` directories containing
-   `python.exe`; pick the highest version. The WindowsApps Store stub is
-   never considered.
-4. macOS/Linux: `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`,
+   `python.exe`; pick the highest version.
+4. Windows: ask bare `python`, then `python3`, from the GUI PATH for
+   `sys.executable`. This covers Microsoft Store Python (Chris's machine is
+   exactly this case: Store Python 3.13, no py launcher, no classic install
+   directories). A successful execution is the validation; the dead Store
+   stub exits nonzero and falls through.
+5. macOS/Linux: `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`,
    `/usr/bin/python3`, then `command -v python3` via `/bin/sh`.
 
 If nothing resolves, settings.json is left untouched. A command containing a

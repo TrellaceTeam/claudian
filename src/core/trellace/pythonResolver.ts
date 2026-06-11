@@ -13,9 +13,14 @@
  *    for sys.executable of the default Python 3.
  * 3. Windows: scan known install roots (%LOCALAPPDATA%\Programs\Python,
  *    %ProgramFiles%, %ProgramFiles(x86)%, C:\) for Python3* directories and
- *    pick the highest version that contains python.exe. The WindowsApps
- *    Store stub is never considered (it is not in any scanned root).
- * 4. POSIX: fixed candidates /opt/homebrew/bin/python3,
+ *    pick the highest version that contains python.exe.
+ * 4. Windows: ask bare `python`, then `python3`, from the GUI PATH for
+ *    sys.executable. This covers Microsoft Store Python, whose
+ *    app-execution alias the directory scan cannot see. A successful
+ *    execution is the validation; the dead Store stub exits nonzero and
+ *    falls through. stat on app-execution aliases is unreliable, so the
+ *    reported path is trusted without a fileExists check.
+ * 5. POSIX: fixed candidates /opt/homebrew/bin/python3,
  *    /usr/local/bin/python3, /usr/bin/python3; then `command -v python3`
  *    through /bin/sh as a login-ish fallback.
  * Returns null when nothing resolves; the materializer then leaves
@@ -75,7 +80,8 @@ export function createDefaultPythonResolverDeps(): PythonResolverDeps {
   };
 }
 
-const PY_LAUNCHER_ARGS = ['-3', '-c', 'import sys; print(sys.executable)'];
+const PY_QUERY_ARGS = ['-c', 'import sys; print(sys.executable)'];
+const PY_LAUNCHER_ARGS = ['-3', ...PY_QUERY_ARGS];
 
 function resolveViaPyLauncher(deps: PythonResolverDeps): string | null {
   const systemRoot = deps.env.SystemRoot || deps.env.windir;
@@ -120,6 +126,14 @@ function resolveViaWindowsScan(deps: PythonResolverDeps): string | null {
   return best?.path ?? null;
 }
 
+function resolveViaPathQuery(deps: PythonResolverDeps): string | null {
+  for (const name of ['python', 'python3']) {
+    const reported = deps.execText(name, PY_QUERY_ARGS);
+    if (reported) return reported;
+  }
+  return null;
+}
+
 const POSIX_CANDIDATES = [
   '/opt/homebrew/bin/python3',
   '/usr/local/bin/python3',
@@ -149,7 +163,9 @@ export function resolvePythonPath(
   }
 
   if (deps.platform === 'win32') {
-    return resolveViaPyLauncher(deps) ?? resolveViaWindowsScan(deps);
+    return (
+      resolveViaPyLauncher(deps) ?? resolveViaWindowsScan(deps) ?? resolveViaPathQuery(deps)
+    );
   }
 
   return resolveViaPosix(deps);
