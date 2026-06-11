@@ -156,29 +156,27 @@ cd "$env:LOCALAPPDATA\claudian-trellace-test"; npm install; npm run test
 The copies `$env:LOCALAPPDATA\claudian-trellace-test` and
 `$env:LOCALAPPDATA\claudian-main-test` are scratch and can be deleted.
 
-## Push and merge steps (Chris)
+## Push, merge, and release steps (Chris)
 
-BRAT auto-ships `main` to every team machine at Obsidian startup. Do NOT
-merge until the manual verification below has passed on Chris's machine.
+Deployment mechanics, verified against the repo on 2026-06-12: BRAT installs
+from GitHub RELEASES of TrellaceTeam/claudian, not from raw main.
+`.github/workflows/release.yml` builds and attaches main.js, manifest.json,
+and styles.css whenever a tag is pushed. BRAT updates a machine at Obsidian
+startup only when the latest release's manifest version is GREATER than the
+installed one (installed today: 1.3.74, equal to tag 1.3.74 = current main).
+So "deploy" = merge to main + bump manifest.json + push a tag.
 
-1. Push the branch:
-   ```bash
-   git push -u origin feature/trellace-layer
-   ```
-2. Open a PR `feature/trellace-layer` -> `main` on TrellaceTeam/claudian.
-   Review the diff (it is small and isolated; nothing outside the files
-   listed above).
-3. Install the branch build into Chris's vault for manual verification:
-   ```bash
-   npm install && npm run build
-   ```
-   Copy `main.js`, `manifest.json`, `styles.css` into
-   `{vault}/.obsidian/plugins/claudian/` (or point a dev vault at the build),
-   then restart Obsidian.
-4. Run the manual verification checklist below.
-5. Only after it passes: merge the PR. BRAT distributes it at each team
-   machine's next Obsidian start.
-6. Then do the rollout step (stripping hand-carried hooks), below.
+1. Test locally first (manual verification below) with the branch build.
+   The local manifest.json says 1.3.74, equal to the latest release, so BRAT
+   will NOT overwrite the hand-copied test build at startup.
+2. Push the branch: `git push -u origin feature/trellace-layer`.
+   PR is optional (Chris is the sole git user); a local merge is equivalent.
+3. After verification passes: merge to main, bump `manifest.json` to 1.3.75
+   in a commit on main (versions.json is historically not bumped), tag the
+   commit `1.3.75`, push main and the tag. The release workflow does the
+   rest. Confirm the release exists and carries the three files.
+4. Team machines pick it up at their next Obsidian start (BRAT
+   updateAtStartup is true). Then do the per-machine rollout step below.
 
 ## Manual Obsidian verification (before merging to main)
 
@@ -220,18 +218,28 @@ suffix first.
 ## Rollout note (after merge and verification)
 
 Hand-carried hooks in `.claude/settings.json` get stripped only AFTER this
-ships and is verified on each machine. Order matters:
+ships and is verified on each machine. Machine reality check (2026-06-12):
+Chris's hand-carried commands use bare `python3`, which differs from the
+materialized absolute-path commands, so both would register and double-fire
+until the old entries are removed. Per machine:
 
-1. Merge to main; BRAT updates team machines at startup.
-2. On each machine (Chris first), restart Obsidian and run the status
-   command. Expect `hooks materialized 4`.
-3. Only then remove the OLD hand-carried hook entries from that machine's
-   `.claude/settings.json` if their command strings differ from the
-   materialized ones (for example bare `python3` instead of the absolute
-   interpreter path). Differing strings register as separate hooks and WILL
-   double-fire until removed. Identical strings were adopted by the layer
-   and need no action; from then on the layer manages them.
-4. The Stop-bridge change ships in the same build, so settings.json Stop
+1. Verify first: restart Obsidian after the BRAT update, run the status
+   command, expect `hooks materialized 4`, and confirm the absolute-path
+   hooks exist in `.claude/settings.json`.
+2. Then, with Obsidian closed (back the file up first), delete the OLD
+   entries whose commands contain bare `python3 hooks/`. Keep the
+   materialized ones (absolute interpreter path). The state file does not
+   own the old entries, so the materializer will not re-add them.
+   On a machine being tested BEFORE the merge (Chris), it is cleaner to
+   strip in the same Obsidian-closed window as installing the test build:
+   the materializer recreates the full set at launch and no double-fire
+   window ever exists.
+3. Machines whose settings.json never had hooks (the Praetor case) need no
+   strip; the materializer simply adds.
+4. Team members have no terminal and Claudian guardrails block `.claude/`
+   writes for team identities, so the strip on their machines is a Chris
+   action (screen share or remote), one time. It is the last hand-carry.
+5. The Stop-bridge change ships in the same build, so settings.json Stop
    hooks no longer double-execute under Claudian regardless.
 
 Future hook changes: edit `args/claudian-hooks.yaml` in the vault, let
