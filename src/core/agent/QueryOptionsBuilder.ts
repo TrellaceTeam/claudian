@@ -18,6 +18,7 @@ import type {
 import type { McpServerManager } from '../mcp';
 import type { PluginManager } from '../plugins';
 import { buildSystemPrompt, type SystemPromptSettings } from '../prompts/mainAgent';
+import { readTrellaceRemoteEnv } from '../trellace/trellaceEnv';
 import type { ClaudianSettings, PermissionMode } from '../types';
 import { resolveModelWithBetas, THINKING_BUDGETS } from '../types';
 import { createCustomSpawnFunction } from './customSpawn';
@@ -202,6 +203,9 @@ export class QueryOptionsBuilder {
         : ['project'],
       env: {
         ...process.env,
+        // Trellace layer: org-pushed TRELLACE_ vars, read fresh at session spawn.
+        // Explicit custom env and the PATH override still win.
+        ...readTrellaceRemoteEnv(),
         ...ctx.customEnv,
         PATH: ctx.enhancedPath,
       },
@@ -271,6 +275,9 @@ export class QueryOptionsBuilder {
         : ['project'],
       env: {
         ...process.env,
+        // Trellace layer: org-pushed TRELLACE_ vars, read fresh at session spawn.
+        // Explicit custom env and the PATH override still win.
+        ...readTrellaceRemoteEnv(),
         ...ctx.customEnv,
         PATH: ctx.enhancedPath,
       },

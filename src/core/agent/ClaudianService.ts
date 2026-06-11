@@ -13,7 +13,6 @@
 
 import type {
   CanUseTool,
-  HookCallbackMatcher,
   McpServerConfig,
   Options,
   PermissionMode as SDKPermissionMode,
@@ -43,6 +42,7 @@ import {
 } from '../../utils/session';
 import {
   createBlocklistHook,
+  createStopHookBridge,
   createVaultRestrictionHook,
 } from '../hooks';
 import type { McpServerManager } from '../mcp';
@@ -517,86 +517,13 @@ export class ClaudianService {
       },
     });
 
-    // Stop hook: Execute project-level Stop hooks (e.g., memory_capture.py)
-    // The Agent SDK handles PreToolUse hooks in-process, but Stop hooks defined
-    // in .claude/settings.local.json are shell commands that need explicit execution.
-    // Without this, project-level Stop hooks silently fail in Claudian.
-    const stopHook: HookCallbackMatcher = {
-      hooks: [
-        async (input) => {
-          const hookInput = input as {
-            hook_event_name: string;
-            session_id: string;
-            transcript_path: string;
-            cwd: string;
-            permission_mode?: string;
-            stop_hook_active: boolean;
-            last_assistant_message?: string;
-          };
-
-          const vaultPath = this.vaultPath;
-          if (!vaultPath) return { continue: true };
-
-          // Read project-level settings for Stop hook commands
-          const settingsFiles = [
-            path.join(vaultPath, '.claude', 'settings.local.json'),
-            path.join(vaultPath, '.claude', 'settings.json'),
-          ];
-
-          for (const settingsFile of settingsFiles) {
-            try {
-              if (!fs.existsSync(settingsFile)) continue;
-              const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-              const stopHooks = settings?.hooks?.Stop;
-              if (!Array.isArray(stopHooks)) continue;
-
-              for (const hookDef of stopHooks) {
-                const hooks = hookDef?.hooks;
-                if (!Array.isArray(hooks)) continue;
-
-                for (const h of hooks) {
-                  if (h?.type !== 'command' || !h?.command) continue;
-
-                  const payload = JSON.stringify({
-                    session_id: hookInput.session_id,
-                    transcript_path: hookInput.transcript_path,
-                    cwd: hookInput.cwd,
-                    permission_mode: hookInput.permission_mode,
-                    hook_event_name: 'Stop',
-                    stop_hook_active: hookInput.stop_hook_active,
-                    last_assistant_message: hookInput.last_assistant_message || '',
-                  });
-
-                  const cmd = h.command.replace(/$CLAUDE_PROJECT_DIR/g, vaultPath);
-                  const timeout = (h.timeout || 30) * 1000;
-
-                  try {
-                    const { exec } = require('child_process') as typeof import('child_process');
-                    await new Promise<void>((resolve) => {
-                      const proc = exec(cmd, {
-                        cwd: vaultPath,
-                        timeout,
-                        env: { ...process.env, CLAUDE_PROJECT_DIR: vaultPath },
-                      }, () => resolve());
-                      if (proc.stdin) {
-                        proc.stdin.write(payload);
-                        proc.stdin.end();
-                      }
-                    });
-                  } catch {
-                    // Hook errors must never break the conversation
-                  }
-                }
-              }
-            } catch {
-              // Settings parse errors are non-fatal
-            }
-          }
-
-          return { continue: true };
-        },
-      ],
-    };
+    // Stop bridge: re-executes Stop hooks from settings.local.json only,
+    // since SDK sessions never load the local tier. Stop hooks in
+    // settings.json (including Trellace-materialized ones) run natively
+    // via the CLI's project tier; bridging them too would double-fire.
+    const stopHook = createStopHookBridge({
+      getVaultPath: () => this.vaultPath,
+    });
 
     return {
       PreToolUse: [blocklistHook, vaultRestrictionHook],

@@ -1,7 +1,16 @@
 import type { QueryOptionsContext } from '@/core/agent/QueryOptionsBuilder';
 import { QueryOptionsBuilder } from '@/core/agent/QueryOptionsBuilder';
 import type { PersistentQueryConfig } from '@/core/agent/types';
+import { readTrellaceRemoteEnv } from '@/core/trellace/trellaceEnv';
 import type { ClaudianSettings } from '@/core/types';
+
+jest.mock('@/core/trellace/trellaceEnv', () => ({
+  readTrellaceRemoteEnv: jest.fn().mockReturnValue({}),
+}));
+
+const mockReadTrellaceRemoteEnv = readTrellaceRemoteEnv as jest.MockedFunction<
+  typeof readTrellaceRemoteEnv
+>;
 
 // Create a mock MCP server manager
 function createMockMcpManager() {
@@ -659,6 +668,72 @@ describe('QueryOptionsBuilder', () => {
       });
 
       expect(options.agents).toBeUndefined();
+    });
+  });
+
+  describe('Trellace env injection', () => {
+    beforeEach(() => {
+      mockReadTrellaceRemoteEnv.mockReturnValue({});
+    });
+
+    it('injects TRELLACE_ variables into persistent query env', () => {
+      mockReadTrellaceRemoteEnv.mockReturnValue({ TRELLACE_ANTHROPIC_API_KEY: 'sk-team' });
+
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions({
+        ...createMockContext(),
+        abortController: new AbortController(),
+        hooks: {},
+      });
+
+      expect(options.env?.TRELLACE_ANTHROPIC_API_KEY).toBe('sk-team');
+    });
+
+    it('injects TRELLACE_ variables into cold-start query env', () => {
+      mockReadTrellaceRemoteEnv.mockReturnValue({ TRELLACE_PROBE: 'on' });
+
+      const options = QueryOptionsBuilder.buildColdStartQueryOptions({
+        ...createMockContext(),
+        abortController: new AbortController(),
+        hooks: {},
+        hasEditorContext: false,
+      });
+
+      expect(options.env?.TRELLACE_PROBE).toBe('on');
+    });
+
+    it('lets explicit custom env override an injected TRELLACE_ variable', () => {
+      mockReadTrellaceRemoteEnv.mockReturnValue({ TRELLACE_PROBE: 'remote' });
+
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions({
+        ...createMockContext({ customEnv: { TRELLACE_PROBE: 'local-override' } }),
+        abortController: new AbortController(),
+        hooks: {},
+      });
+
+      expect(options.env?.TRELLACE_PROBE).toBe('local-override');
+    });
+
+    it('keeps the enhanced PATH override on top of injected variables', () => {
+      mockReadTrellaceRemoteEnv.mockReturnValue({ PATH: 'should-never-happen' });
+
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions({
+        ...createMockContext({ enhancedPath: '/enhanced/bin' }),
+        abortController: new AbortController(),
+        hooks: {},
+      });
+
+      expect(options.env?.PATH).toBe('/enhanced/bin');
+    });
+
+    it('builds env normally when no TRELLACE_ variables exist', () => {
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions({
+        ...createMockContext({ customEnv: { FOO: 'bar' } }),
+        abortController: new AbortController(),
+        hooks: {},
+      });
+
+      expect(options.env?.FOO).toBe('bar');
+      expect(mockReadTrellaceRemoteEnv).toHaveBeenCalled();
     });
   });
 });

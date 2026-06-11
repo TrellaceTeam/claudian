@@ -11,8 +11,14 @@ import { Notice, Plugin } from 'obsidian';
 import { AgentManager } from './core/agents';
 import { McpServerManager } from './core/mcp';
 import { PluginManager } from './core/plugins';
-import { StorageService } from './core/storage';
+import { StorageService, VaultFileAdapter } from './core/storage';
 import { isSubagentToolName, TOOL_TASK } from './core/tools/toolNames';
+import {
+  formatTrellaceLayerStatus,
+  initializeTrellaceLayer,
+  type MaterializeResult,
+  readTrellaceRemoteEnv,
+} from './core/trellace';
 import type {
   ChatMessage,
   ClaudianSettings,
@@ -57,9 +63,19 @@ export default class ClaudianPlugin extends Plugin {
   cliResolver: ClaudeCliResolver;
   private conversations: Conversation[] = [];
   private runtimeEnvironmentVariables = '';
+  private trellaceHooksResult: MaterializeResult = {
+    status: 'error',
+    hooksMaterialized: 0,
+    pythonPath: null,
+  };
 
   async onload() {
     await this.loadSettings();
+
+    // Trellace layer: materialize synced team hooks (args/claudian-hooks.yaml)
+    // into the machine-local .claude/settings.json. Must run at plugin load,
+    // not from a hook, so it works on machines with zero hooks registered.
+    this.trellaceHooksResult = await initializeTrellaceLayer(new VaultFileAdapter(this.app));
 
     this.cliResolver = new ClaudeCliResolver();
 
@@ -90,6 +106,15 @@ export default class ClaudianPlugin extends Plugin {
       name: 'Open chat view',
       callback: () => {
         this.activateView();
+      },
+    });
+
+    this.addCommand({
+      id: 'trellace-layer-status',
+      name: 'Trellace layer status',
+      callback: () => {
+        const envVarCount = Object.keys(readTrellaceRemoteEnv()).length;
+        new Notice(formatTrellaceLayerStatus(envVarCount, this.trellaceHooksResult), 10000);
       },
     });
 
