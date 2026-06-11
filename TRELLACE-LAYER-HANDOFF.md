@@ -158,7 +158,7 @@ The copies `$env:LOCALAPPDATA\claudian-trellace-test` and
 
 ## Push, merge, and release steps (Chris)
 
-Deployment mechanics, verified against the repo on 2026-06-12: BRAT installs
+Deployment mechanics, verified against the repo on 2026-06-11: BRAT installs
 from GitHub RELEASES of TrellaceTeam/claudian, not from raw main.
 `.github/workflows/release.yml` builds and attaches main.js, manifest.json,
 and styles.css whenever a tag is pushed. BRAT updates a machine at Obsidian
@@ -218,7 +218,7 @@ suffix first.
 ## Rollout note (after merge and verification)
 
 Hand-carried hooks in `.claude/settings.json` get stripped only AFTER this
-ships and is verified on each machine. Machine reality check (2026-06-12):
+ships and is verified on each machine. Machine reality check (2026-06-11):
 Chris's hand-carried commands use bare `python3`, which differs from the
 materialized absolute-path commands, so both would register and double-fire
 until the old entries are removed. Per machine:
