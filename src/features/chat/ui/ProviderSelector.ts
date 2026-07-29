@@ -3,6 +3,12 @@ import type ClaudianPlugin from '../../../main';
 
 export interface ProviderSelectorCallbacks {
   onProviderChange: (snippet: EnvSnippet | null) => Promise<void>;
+  /**
+   * Returns the tab's explicit per-tab provider id ('' = built-in Claude),
+   * or undefined when the tab follows the plugin-global default (in which
+   * case the current provider is reverse-derived from the global env).
+   */
+  getSelectedProviderId?: () => string | undefined;
 }
 
 export class ProviderSelector {
@@ -48,6 +54,12 @@ export class ProviderSelector {
 
   private getCurrentProviderId(): string {
     try {
+      // Explicit per-tab selection wins over the reverse-derived global env
+      const selected = this.callbacks.getSelectedProviderId?.();
+      if (selected !== undefined) {
+        return selected;
+      }
+
       const currentEnvVars = this.plugin.getActiveEnvironmentVariables();
       if (!currentEnvVars || currentEnvVars.trim() === '') {
         return '';

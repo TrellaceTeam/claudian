@@ -35,6 +35,8 @@ export interface ToolbarCallbacks {
   getSettings: () => ToolbarSettings;
   getEnvironmentVariables?: () => string;
   onProviderChange?: (snippet: EnvSnippet | null) => Promise<void>;
+  /** Returns the tab's explicit per-tab provider id, or undefined when following the global default. */
+  getSelectedProviderId?: () => string | undefined;
 }
 
 export class ModelSelector {
@@ -916,7 +918,8 @@ export function createInputToolbar(
     providerSelector = new ProviderSelector(parentEl, plugin, {
       onProviderChange: async (snippet) => {
         await callbacks.onProviderChange!(snippet);
-      }
+      },
+      getSelectedProviderId: callbacks.getSelectedProviderId,
     });
   }
 

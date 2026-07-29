@@ -1835,6 +1835,7 @@ describe('ConversationController - switchTo fork path', () => {
     mockAgentService = {
       getSessionId: jest.fn().mockReturnValue(null),
       setSessionId: jest.fn(),
+      setConversationEnvironment: jest.fn(),
       applyForkState: jest.fn((conv: any) => conv.sessionId ?? conv.forkSource?.sessionId ?? null),
       consumeSessionInvalidation: jest.fn().mockReturnValue(false),
     };

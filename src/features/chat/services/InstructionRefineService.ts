@@ -14,9 +14,18 @@ export class InstructionRefineService {
   private abortController: AbortController | null = null;
   private sessionId: string | null = null;
   private existingInstructions: string = '';
+  /** Per-tab env/model getters (explicit per-tab provider). Default: global. */
+  private getEnvVars?: () => string;
+  private getModel?: () => string;
 
-  constructor(plugin: ClaudianPlugin) {
+  constructor(
+    plugin: ClaudianPlugin,
+    getEnvVars?: () => string,
+    getModel?: () => string
+  ) {
     this.plugin = plugin;
+    this.getEnvVars = getEnvVars;
+    this.getModel = getModel;
   }
 
   /** Resets conversation state for a new refinement session. */
@@ -71,8 +80,10 @@ export class InstructionRefineService {
 
     this.abortController = new AbortController();
 
-    // Parse custom environment variables
-    const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
+    // Parse custom environment variables (per-tab override or global default)
+    const customEnv = parseEnvironmentVariables(
+      this.getEnvVars?.() ?? this.plugin.getActiveEnvironmentVariables()
+    );
     const enhancedPath = getEnhancedPath(customEnv.PATH, resolvedClaudePath);
     const missingNodeError = getMissingNodeError(resolvedClaudePath, enhancedPath);
     if (missingNodeError) {
@@ -82,7 +93,7 @@ export class InstructionRefineService {
     const options: Options = {
       cwd: vaultPath,
       systemPrompt: buildRefineSystemPrompt(this.existingInstructions),
-      model: this.plugin.settings.model,
+      model: this.getModel?.() ?? this.plugin.settings.model,
       abortController: this.abortController,
       pathToClaudeCodeExecutable: resolvedClaudePath,
       env: {

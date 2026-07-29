@@ -32,6 +32,19 @@ export interface PendingToolCall {
   parentEl: HTMLElement | null;
 }
 
+/**
+ * Explicit per-tab provider selection (set via the in-chat ProviderSelector).
+ * null = the tab follows the plugin-global env/model defaults.
+ */
+export interface ProviderSelection {
+  /** EnvSnippet id ('' = built-in Claude). */
+  providerId: string;
+  /** Raw env text from the snippet ('' for built-in Claude). */
+  envVars: string;
+  /** Per-tab model override, scoped with envVars. */
+  model?: string;
+}
+
 /** Stored selection state from editor polling. */
 export interface StoredSelection {
   notePath: string;
@@ -59,6 +72,9 @@ export interface ChatStateData {
 
   // Conversation identity
   currentConversationId: string | null;
+
+  /** Explicit per-tab provider selection; null = follow the global env/model defaults. */
+  providerSelection: ProviderSelection | null;
 
   // Queued message
   queuedMessage: QueuedMessage | null;
@@ -112,6 +128,7 @@ export interface ChatStateCallbacks {
   onMessagesChanged?: () => void;
   onStreamingStateChanged?: (isStreaming: boolean) => void;
   onConversationChanged?: (id: string | null) => void;
+  onProviderSelectionChanged?: (selection: ProviderSelection | null) => void;
   onUsageChanged?: (usage: UsageInfo | null) => void;
   onTodosChanged?: (todos: TodoItem[] | null) => void;
   onAttentionChanged?: (needsAttention: boolean) => void;

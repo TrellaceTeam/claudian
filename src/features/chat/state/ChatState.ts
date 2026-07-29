@@ -5,6 +5,7 @@ import type {
   ChatStateData,
   PendingToolCall,
   PermissionMode,
+  ProviderSelection,
   QueuedMessage,
   ThinkingBlockState,
   TodoItem,
@@ -20,6 +21,7 @@ function createInitialState(): ChatStateData {
     isCreatingConversation: false,
     isSwitchingConversation: false,
     currentConversationId: null,
+    providerSelection: null,
     queuedMessage: null,
     currentContentEl: null,
     currentTextEl: null,
@@ -150,6 +152,19 @@ export class ChatState {
   set currentConversationId(value: string | null) {
     this.state.currentConversationId = value;
     this._callbacks.onConversationChanged?.(value);
+  }
+
+  // ============================================
+  // Per-Tab Provider Selection
+  // ============================================
+
+  get providerSelection(): ProviderSelection | null {
+    return this.state.providerSelection;
+  }
+
+  set providerSelection(value: ProviderSelection | null) {
+    this.state.providerSelection = value;
+    this._callbacks.onProviderSelectionChanged?.(value);
   }
 
   // ============================================

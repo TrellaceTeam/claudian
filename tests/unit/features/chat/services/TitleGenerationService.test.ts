@@ -7,7 +7,7 @@ import {
 
 import { type TitleGenerationResult, TitleGenerationService } from '@/features/chat/services/TitleGenerationService';
 function createMockPlugin(settings = {}) {
-  return {
+  const plugin: any = {
     settings: {
       model: 'sonnet',
       titleGenerationModel: '',
@@ -23,7 +23,13 @@ function createMockPlugin(settings = {}) {
     },
     getActiveEnvironmentVariables: jest.fn().mockReturnValue(''),
     getResolvedClaudeCliPath: jest.fn().mockReturnValue('/fake/claude'),
-  } as any;
+    getConversationById: jest.fn().mockResolvedValue(null),
+  };
+  // Mirror the real plugin: per-conversation env override or the global default
+  plugin.getEnvironmentVariablesForConversation = jest.fn().mockImplementation(
+    (conv: any) => conv?.envVars ?? plugin.getActiveEnvironmentVariables()
+  );
+  return plugin;
 }
 
 describe('TitleGenerationService', () => {
@@ -150,6 +156,35 @@ describe('TitleGenerationService', () => {
 
       const options = getLastOptions();
       expect(options?.model).toBe('custom-haiku');
+    });
+
+    it('should use the conversation per-tab env instead of the global env', async () => {
+      mockPlugin.settings.titleGenerationModel = '';
+      mockPlugin.getActiveEnvironmentVariables.mockReturnValue(
+        'ANTHROPIC_DEFAULT_HAIKU_MODEL=global-haiku'
+      );
+      mockPlugin.getConversationById.mockResolvedValue({
+        id: 'conv-123',
+        envVars: 'ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash\nANTHROPIC_BASE_URL=https://api.deepseek.example/anthropic',
+      });
+
+      setMockMessages([
+        { type: 'system', subtype: 'init', session_id: 'test-session' },
+        {
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'Title' }],
+          },
+        },
+        { type: 'result' },
+      ]);
+
+      const callback = jest.fn();
+      await service.generateTitle('conv-123', 'test', callback);
+
+      const options = getLastOptions();
+      expect(options?.model).toBe('deepseek-v4-flash');
+      expect((options as any)?.env?.ANTHROPIC_BASE_URL).toBe('https://api.deepseek.example/anthropic');
     });
 
     it('should fallback to claude-haiku-4-5 model', async () => {

@@ -350,17 +350,21 @@ describe('ClaudianPlugin', () => {
       expect(saveMetadataSpy).toHaveBeenCalled();
     });
 
-    it('broadcasts ensureReady with force when env changes without model change', async () => {
+    it('restarts initialized tabs with force when env changes without model change', async () => {
       await plugin.onload();
 
       // Mock getView to return a view with tabManager
       const mockEnsureReady = jest.fn().mockResolvedValue(true);
-      const mockBroadcast = jest.fn().mockImplementation(async (fn) => {
-        await fn({ ensureReady: mockEnsureReady });
-      });
+      const mockTab = {
+        state: { isStreaming: false, providerSelection: null },
+        service: { ensureReady: mockEnsureReady },
+        serviceInitialized: true,
+        controllers: {},
+        ui: {},
+      };
       const mockTabManager = {
-        broadcastToAllTabs: mockBroadcast,
-        getAllTabs: jest.fn().mockReturnValue([]),
+        broadcastToAllTabs: jest.fn(),
+        getAllTabs: jest.fn().mockReturnValue([mockTab]),
       };
       const mockView = {
         getTabManager: jest.fn().mockReturnValue(mockTabManager),
@@ -371,8 +375,78 @@ describe('ClaudianPlugin', () => {
       // Change env but not in a way that affects model
       await plugin.applyEnvironmentVariables('SOME_VAR=value');
 
-      expect(mockBroadcast).toHaveBeenCalled();
       expect(mockEnsureReady).toHaveBeenCalledWith({ force: true });
+    });
+
+    it('does not touch tabs with an explicit per-tab provider on global apply', async () => {
+      await plugin.onload();
+
+      // Tab with an explicit per-tab provider: must be left alone entirely
+      const explicitEnsureReady = jest.fn().mockResolvedValue(true);
+      const explicitResetSession = jest.fn();
+      const explicitCancel = jest.fn();
+      const explicitTab = {
+        state: {
+          isStreaming: true,
+          providerSelection: { providerId: 'snippet-deepseek', envVars: 'ANTHROPIC_BASE_URL=https://api.deepseek.example' },
+        },
+        service: { ensureReady: explicitEnsureReady, resetSession: explicitResetSession },
+        serviceInitialized: true,
+        controllers: { inputController: { cancelStreaming: explicitCancel } },
+        ui: {},
+      };
+      // Default tab (follows the global env): gets cancelled + rebuilt
+      const defaultEnsureReady = jest.fn().mockResolvedValue(true);
+      const defaultResetSession = jest.fn();
+      const defaultCancel = jest.fn();
+      const defaultTab = {
+        state: { isStreaming: true, providerSelection: null },
+        service: { ensureReady: defaultEnsureReady, resetSession: defaultResetSession },
+        serviceInitialized: true,
+        controllers: { inputController: { cancelStreaming: defaultCancel } },
+        ui: {},
+      };
+      const mockTabManager = {
+        broadcastToAllTabs: jest.fn(),
+        getAllTabs: jest.fn().mockReturnValue([explicitTab, defaultTab]),
+      };
+      const mockView = {
+        getTabManager: jest.fn().mockReturnValue(mockTabManager),
+        refreshModelSelector: jest.fn(),
+      };
+      jest.spyOn(plugin, 'getView').mockReturnValue(mockView as any);
+
+      // Provider-identity change (hash change) → the destructive branch
+      await plugin.applyEnvironmentVariables('ANTHROPIC_MODEL=claude-sonnet-4-5');
+
+      // Per-tab provider: no stream cancel, no session reset, no restart
+      expect(explicitCancel).not.toHaveBeenCalled();
+      expect(explicitResetSession).not.toHaveBeenCalled();
+      expect(explicitEnsureReady).not.toHaveBeenCalled();
+
+      // Default tab: global apply still fans out as before
+      expect(defaultCancel).toHaveBeenCalled();
+      expect(defaultResetSession).toHaveBeenCalled();
+      expect(defaultEnsureReady).toHaveBeenCalled();
+    });
+
+    it('does not clear the session of conversations with an explicit per-tab provider', async () => {
+      await plugin.onload();
+
+      const globalConv = await plugin.createConversation('session-global');
+      const perTabConv = await plugin.createConversation('session-pertab');
+      await plugin.updateConversation(perTabConv.id, {
+        providerId: 'snippet-deepseek',
+        envVars: 'ANTHROPIC_BASE_URL=https://api.deepseek.example',
+        model: 'deepseek-v4-pro',
+      });
+
+      await plugin.applyEnvironmentVariables('ANTHROPIC_MODEL=claude-sonnet-4-5');
+
+      const updatedGlobal = await plugin.getConversationById(globalConv.id);
+      const updatedPerTab = await plugin.getConversationById(perTabConv.id);
+      expect(updatedGlobal?.sessionId).toBeNull();
+      expect(updatedPerTab?.sessionId).toBe('session-pertab');
     });
   });
 

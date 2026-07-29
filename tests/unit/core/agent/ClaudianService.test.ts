@@ -148,6 +148,57 @@ describe('ClaudianService', () => {
     });
   });
 
+  describe('Per-Tab Provider Environment', () => {
+    it('uses the per-conversation env/model override in the query options context', () => {
+      service.setConversationEnvironment(
+        'ANTHROPIC_BASE_URL=https://api.deepseek.example/anthropic',
+        'deepseek-v4-pro'
+      );
+
+      const ctx = (service as any).buildQueryOptionsContext('/mock/vault/path', '/usr/local/bin/claude');
+
+      expect(ctx.customEnv.ANTHROPIC_BASE_URL).toBe('https://api.deepseek.example/anthropic');
+      expect(ctx.modelOverride).toBe('deepseek-v4-pro');
+    });
+
+    it('falls back to the plugin-global env/model when no override is set', () => {
+      (mockPlugin.getActiveEnvironmentVariables as jest.Mock).mockReturnValue(
+        'ANTHROPIC_BASE_URL=https://global.example'
+      );
+
+      const ctx = (service as any).buildQueryOptionsContext('/mock/vault/path', '/usr/local/bin/claude');
+
+      expect(ctx.customEnv.ANTHROPIC_BASE_URL).toBe('https://global.example');
+      expect(ctx.modelOverride).toBeUndefined();
+    });
+
+    it('keeps two service instances isolated (one tab cannot leak env/model into another)', () => {
+      const serviceA = new ClaudianService(mockPlugin as ClaudianPlugin, mockMcpManager);
+      const serviceB = new ClaudianService(mockPlugin as ClaudianPlugin, mockMcpManager);
+
+      serviceA.setConversationEnvironment('ANTHROPIC_BASE_URL=https://a.example', 'model-a');
+
+      const ctxA = (serviceA as any).buildQueryOptionsContext('/mock/vault/path', '/usr/local/bin/claude');
+      const ctxB = (serviceB as any).buildQueryOptionsContext('/mock/vault/path', '/usr/local/bin/claude');
+
+      expect(ctxA.customEnv.ANTHROPIC_BASE_URL).toBe('https://a.example');
+      expect(ctxA.modelOverride).toBe('model-a');
+      expect(ctxB.customEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(ctxB.modelOverride).toBeUndefined();
+    });
+
+    it('clearing the override reverts the tab to the global env', () => {
+      service.setConversationEnvironment('ANTHROPIC_BASE_URL=https://a.example', 'model-a');
+      service.setConversationEnvironment(undefined);
+
+      expect(service.getConversationEnvVars()).toBeUndefined();
+
+      const ctx = (service as any).buildQueryOptionsContext('/mock/vault/path', '/usr/local/bin/claude');
+      expect(ctx.customEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(ctx.modelOverride).toBeUndefined();
+    });
+  });
+
   describe('Persistent Query Management', () => {
     it('should not be active initially', () => {
       expect(service.isPersistentQueryActive()).toBe(false);

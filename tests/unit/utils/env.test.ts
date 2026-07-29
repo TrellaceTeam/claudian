@@ -1325,3 +1325,41 @@ describe('getExtraBinaryPaths (Windows branches)', () => {
     expect(result).toContain(';');
   });
 });
+
+describe('PATH-less provider snippet (per-tab env regression)', () => {
+  // Regression lock-in for per-tab provider env: a snippet that omits PATH
+  // must degrade safely to the process PATH so CLI resolution keeps working
+  // per-tab (buildQueryOptionsContext passes customEnv.PATH through).
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    Object.keys(process.env).forEach(key => delete process.env[key]);
+    Object.assign(process.env, originalEnv);
+  });
+
+  it('parses a provider snippet without producing a PATH entry', () => {
+    const snippet = [
+      'ANTHROPIC_BASE_URL=https://api.deepseek.example/anthropic',
+      'ANTHROPIC_AUTH_TOKEN=sk-test',
+      'ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro',
+    ].join('\n');
+    const customEnv = parseEnvironmentVariables(snippet);
+
+    expect(customEnv.PATH).toBeUndefined();
+    expect(customEnv.ANTHROPIC_BASE_URL).toBe('https://api.deepseek.example/anthropic');
+  });
+
+  it('getEnhancedPath falls back to process.env.PATH for a PATH-less snippet', () => {
+    process.env.PATH = `/existing/path${SEP}/another/path`;
+    const customEnv = parseEnvironmentVariables(
+      'ANTHROPIC_BASE_URL=https://api.kimi.example/anthropic\nANTHROPIC_AUTH_TOKEN=sk-test'
+    );
+
+    const result = getEnhancedPath(customEnv.PATH, undefined);
+
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result).toContain('/existing/path');
+    expect(result).toContain('/another/path');
+  });
+});

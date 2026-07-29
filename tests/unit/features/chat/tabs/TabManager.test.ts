@@ -1238,6 +1238,7 @@ describe('TabManager - switchToTab Session Sync', () => {
     const mockSetSessionId = jest.fn();
     const mockService = {
       setSessionId: mockSetSessionId,
+      setConversationEnvironment: jest.fn(),
       closePersistentQuery: jest.fn(),
       ensureReady: jest.fn().mockResolvedValue(true),
       onReadyStateChange: jest.fn(() => () => {}),
@@ -1289,6 +1290,7 @@ describe('TabManager - switchToTab Session Sync', () => {
     const mockSetSessionId = jest.fn();
     const mockService = {
       setSessionId: mockSetSessionId,
+      setConversationEnvironment: jest.fn(),
       applyForkState: jest.fn((conv: any) => conv.sessionId ?? conv.forkSource?.sessionId ?? null),
     };
 

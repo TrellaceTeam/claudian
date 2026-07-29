@@ -158,6 +158,16 @@ export class ClaudianService {
   private pendingResumeAt?: string;
   private pendingForkSession = false;
 
+  /**
+   * Per-tab provider overrides from the conversation bound to this service.
+   * Undefined = follow the plugin-global env/model defaults.
+   * Base URL and API key are baked into the SDK process at spawn time, so
+   * changing these requires a respawn (resetSession + ensureReady), driven by
+   * the tab's provider-change handler.
+   */
+  private conversationEnvVars: string | undefined;
+  private conversationModel: string | undefined;
+
   // Last sent message for crash recovery (Phase 1.3)
   private lastSentMessage: SDKUserMessage | null = null;
   private lastSentQueryOptions: QueryOptions | null = null;
@@ -194,6 +204,30 @@ export class ClaudianService {
         // Ignore listener errors
       }
     }
+  }
+
+  /**
+   * Sets the per-tab provider env/model override for this service.
+   * Pass undefined envVars to revert to the plugin-global defaults.
+   * Does not respawn the SDK process by itself - callers drive that.
+   */
+  setConversationEnvironment(envVars: string | undefined, model?: string): void {
+    this.conversationEnvVars = envVars;
+    this.conversationModel = model;
+  }
+
+  getConversationEnvVars(): string | undefined {
+    return this.conversationEnvVars;
+  }
+
+  /** Effective env text for spawning queries: per-tab override or the global default. */
+  private getEffectiveEnvText(): string {
+    return this.conversationEnvVars ?? this.plugin.getActiveEnvironmentVariables();
+  }
+
+  /** Effective model for queries: per-tab override or the global settings.model. */
+  private getEffectiveModel(): string {
+    return this.conversationModel ?? this.plugin.settings.model;
   }
 
   setPendingResumeAt(uuid: string | undefined): void {
@@ -307,7 +341,7 @@ export class ClaudianService {
 
     if (resumeSessionId) {
       this.messageChannel.setSessionId(resumeSessionId);
-      this.sessionManager.setSessionId(resumeSessionId, this.plugin.settings.model);
+      this.sessionManager.setSessionId(resumeSessionId, this.getEffectiveModel());
     }
 
     this.queryAbortController = new AbortController();
@@ -446,7 +480,7 @@ export class ClaudianService {
    * Builds the base query options context from current state.
    */
   private buildQueryOptionsContext(vaultPath: string, cliPath: string): QueryOptionsContext {
-    const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
+    const customEnv = parseEnvironmentVariables(this.getEffectiveEnvText());
     const enhancedPath = getEnhancedPath(customEnv.PATH, cliPath);
 
     return {
@@ -457,6 +491,7 @@ export class ClaudianService {
       enhancedPath,
       mcpManager: this.mcpManager,
       pluginManager: this.plugin.pluginManager,
+      modelOverride: this.conversationModel,
     };
   }
 
@@ -622,7 +657,7 @@ export class ClaudianService {
   /** @param modelOverride - Optional model override for cold-start queries */
   private getTransformOptions(modelOverride?: string) {
     return {
-      intendedModel: modelOverride ?? this.plugin.settings.model,
+      intendedModel: modelOverride ?? this.getEffectiveModel(),
       is1MEnabled: this.plugin.settings.show1MModel ?? false,
       customContextLimits: this.plugin.settings.customContextLimits,
     };
@@ -748,7 +783,7 @@ export class ClaudianService {
       return;
     }
 
-    const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
+    const customEnv = parseEnvironmentVariables(this.getEffectiveEnvText());
     const enhancedPath = getEnhancedPath(customEnv.PATH, resolvedClaudePath);
     const missingNodeError = getMissingNodeError(resolvedClaudePath, enhancedPath);
     if (missingNodeError) {
@@ -1116,7 +1151,7 @@ export class ClaudianService {
       return;
     }
 
-    const selectedModel = queryOptions?.model || this.plugin.settings.model;
+    const selectedModel = queryOptions?.model || this.getEffectiveModel();
     const permissionMode = this.plugin.settings.permissionMode;
     const budgetSetting = this.plugin.settings.thinkingBudget;
     const budgetConfig = THINKING_BUDGETS.find(b => b.value === budgetSetting);
@@ -1269,7 +1304,7 @@ export class ClaudianService {
     images?: ImageAttachment[],
     queryOptions?: QueryOptions
   ): AsyncGenerator<StreamChunk> {
-    const selectedModel = queryOptions?.model || this.plugin.settings.model;
+    const selectedModel = queryOptions?.model || this.getEffectiveModel();
 
     this.sessionManager.setPendingModel(selectedModel);
     this.vaultPath = cwd;
@@ -1441,7 +1476,7 @@ export class ClaudianService {
       this.crashRecoveryAttempted = false;
     }
 
-    this.sessionManager.setSessionId(id, this.plugin.settings.model);
+    this.sessionManager.setSessionId(id, this.getEffectiveModel());
 
     // Ensure query is ready with the new session ID and external contexts
     // Passing external contexts here prevents stale contexts from previous session

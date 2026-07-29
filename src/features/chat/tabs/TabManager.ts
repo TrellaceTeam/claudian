@@ -188,6 +188,13 @@ export class TabManager implements TabManagerInterface {
             ? conversation.externalContextPaths || []
             : (this.plugin.settings.persistentExternalContextPaths || []);
 
+          // Re-apply the tab's per-tab provider env/model BEFORE setSessionId
+          // triggers ensureReady (env is baked into the SDK process at spawn)
+          tab.service.setConversationEnvironment(
+            tab.state.providerSelection?.envVars,
+            tab.state.providerSelection?.model
+          );
+
           const resolvedSessionId = tab.service.applyForkState(conversation);
           tab.service.setSessionId(resolvedSessionId, externalContextPaths);
         }

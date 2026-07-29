@@ -48,6 +48,8 @@ export interface QueryOptionsContext {
   mcpManager: McpServerManager;
   /** Plugin manager for Claude Code plugins. */
   pluginManager: PluginManager;
+  /** Optional per-tab model override (takes precedence over settings.model). */
+  modelOverride?: string;
 }
 
 /**
@@ -163,7 +165,7 @@ export class QueryOptionsBuilder {
     const pluginsKey = ctx.pluginManager.getPluginsKey();
 
     return {
-      model: ctx.settings.model,
+      model: ctx.modelOverride ?? ctx.settings.model,
       thinkingTokens: thinkingTokens && thinkingTokens > 0 ? thinkingTokens : null,
       permissionMode: ctx.settings.permissionMode,
       systemPromptKey: computeSystemPromptKey(systemPromptSettings),
@@ -183,7 +185,7 @@ export class QueryOptionsBuilder {
   static buildPersistentQueryOptions(ctx: PersistentQueryContext): Options {
     const permissionMode = ctx.settings.permissionMode;
 
-    const resolved = resolveModelWithBetas(ctx.settings.model, ctx.settings.show1MModel);
+    const resolved = resolveModelWithBetas(ctx.modelOverride ?? ctx.settings.model, ctx.settings.show1MModel);
     const systemPrompt = buildSystemPrompt({
       mediaFolder: ctx.settings.mediaFolder,
       customPrompt: ctx.settings.systemPrompt,

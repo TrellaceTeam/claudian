@@ -38,6 +38,10 @@ interface SessionMetaRecord {
   currentNote?: string;
   usage?: UsageInfo;
   titleGenerationStatus?: 'pending' | 'success' | 'failed';
+  providerId?: string;
+  envVars?: string;
+  model?: string;
+  lastEnvHash?: string;
 }
 
 /** Message record stored as subsequent lines. */
@@ -227,6 +231,10 @@ export class SessionStorage {
       currentNote: meta.currentNote,
       usage: meta.usage,
       titleGenerationStatus: meta.titleGenerationStatus,
+      providerId: meta.providerId,
+      envVars: meta.envVars,
+      model: meta.model,
+      lastEnvHash: meta.lastEnvHash,
     };
   }
 
@@ -245,6 +253,10 @@ export class SessionStorage {
       currentNote: conversation.currentNote,
       usage: conversation.usage,
       titleGenerationStatus: conversation.titleGenerationStatus,
+      providerId: conversation.providerId,
+      envVars: conversation.envVars,
+      model: conversation.model,
+      lastEnvHash: conversation.lastEnvHash,
     };
     lines.push(JSON.stringify(meta));
 
@@ -401,6 +413,10 @@ export class SessionStorage {
       subagentData: Object.keys(subagentData).length > 0 ? subagentData : undefined,
       resumeSessionAt: conversation.resumeSessionAt,
       forkSource: conversation.forkSource,
+      providerId: conversation.providerId,
+      envVars: conversation.envVars,
+      model: conversation.model,
+      lastEnvHash: conversation.lastEnvHash,
     };
   }
 

@@ -252,6 +252,16 @@ describe('QueryOptionsBuilder', () => {
 
       expect(config.settingSources).toBe('user,project');
     });
+
+    it('uses the per-tab modelOverride over settings.model', () => {
+      const ctx = createMockContext({
+        settings: createMockSettings({ model: 'claude-sonnet-4-5' }),
+        modelOverride: 'deepseek-v4-pro',
+      });
+      const config = QueryOptionsBuilder.buildPersistentQueryConfig(ctx);
+
+      expect(config.model).toBe('deepseek-v4-pro');
+    });
   });
 
   describe('buildPersistentQueryOptions', () => {
@@ -265,6 +275,20 @@ describe('QueryOptionsBuilder', () => {
 
       expect(options.permissionMode).toBe('bypassPermissions');
       expect(options.allowDangerouslySkipPermissions).toBe(true);
+    });
+
+    it('uses the per-tab modelOverride over settings.model', () => {
+      const ctx = {
+        ...createMockContext({
+          settings: createMockSettings({ model: 'claude-sonnet-4-5' }),
+          modelOverride: 'deepseek-v4-pro',
+        }),
+        abortController: new AbortController(),
+        hooks: {},
+      };
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions(ctx);
+
+      expect(options.model).toBe('deepseek-v4-pro');
     });
 
     it('includes canUseTool in yolo mode when provided', () => {

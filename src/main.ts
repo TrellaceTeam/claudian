@@ -329,6 +329,10 @@ export default class ClaudianPlugin extends Plugin {
       conversation.subagentData = meta.subagentData ?? conversation.subagentData;
       conversation.resumeSessionAt = meta.resumeSessionAt ?? conversation.resumeSessionAt;
       conversation.forkSource = meta.forkSource ?? conversation.forkSource;
+      conversation.providerId = meta.providerId ?? conversation.providerId;
+      conversation.envVars = meta.envVars ?? conversation.envVars;
+      conversation.model = meta.model ?? conversation.model;
+      conversation.lastEnvHash = meta.lastEnvHash ?? conversation.lastEnvHash;
     }
 
     // Also load native session metadata (no legacy JSONL)
@@ -361,6 +365,10 @@ export default class ClaudianPlugin extends Plugin {
           subagentData: meta.subagentData, // Preserve for applying to loaded messages
           resumeSessionAt: meta.resumeSessionAt,
           forkSource: meta.forkSource,
+          providerId: meta.providerId,
+          envVars: meta.envVars,
+          model: meta.model,
+          lastEnvHash: meta.lastEnvHash,
         };
       });
 
@@ -460,6 +468,9 @@ export default class ClaudianPlugin extends Plugin {
 
     if (tabManager) {
       for (const tab of tabManager.getAllTabs()) {
+        // Tabs with an explicit per-tab provider do not consume the global env;
+        // leave their streams and sessions untouched.
+        if (tab.state.providerSelection != null) continue;
         if (tab.state.isStreaming) {
           tab.controllers.inputController?.cancelStreaming();
         }
@@ -468,6 +479,7 @@ export default class ClaudianPlugin extends Plugin {
       let failedTabs = 0;
       if (changed) {
         for (const tab of tabManager.getAllTabs()) {
+          if (tab.state.providerSelection != null) continue;
           if (!tab.service || !tab.serviceInitialized) {
             continue;
           }
@@ -481,12 +493,16 @@ export default class ClaudianPlugin extends Plugin {
         }
       } else {
         // Restart initialized tabs to pick up env changes
-        try {
-          await tabManager.broadcastToAllTabs(
-            async (service) => { await service.ensureReady({ force: true }); }
-          );
-        } catch {
-          failedTabs++;
+        for (const tab of tabManager.getAllTabs()) {
+          if (tab.state.providerSelection != null) continue;
+          if (!tab.service || !tab.serviceInitialized) {
+            continue;
+          }
+          try {
+            await tab.service.ensureReady({ force: true });
+          } catch {
+            failedTabs++;
+          }
         }
       }
       if (failedTabs > 0) {
@@ -507,6 +523,14 @@ export default class ClaudianPlugin extends Plugin {
     return this.runtimeEnvironmentVariables;
   }
 
+  /**
+   * Returns the effective env text for a conversation: its explicit per-tab
+   * provider override when set, otherwise the plugin-global default env.
+   */
+  getEnvironmentVariablesForConversation(conversation: Conversation | null | undefined): string {
+    return conversation?.envVars ?? this.getActiveEnvironmentVariables();
+  }
+
   getResolvedClaudeCliPath(): string | null {
     return this.cliResolver.resolve(
       this.settings.claudeCliPathsByHost,  // Per-device paths (preferred)
@@ -519,7 +543,7 @@ export default class ClaudianPlugin extends Plugin {
     return DEFAULT_CLAUDE_MODELS.map((m) => m.value);
   }
 
-  private getPreferredCustomModel(envVars: Record<string, string>, customModels: { value: string }[]): string {
+  getPreferredCustomModel(envVars: Record<string, string>, customModels: { value: string }[]): string {
     const envPreferred = getCurrentModelFromEnvironment(envVars);
     if (envPreferred && customModels.some((m) => m.value === envPreferred)) {
       return envPreferred;
@@ -528,7 +552,7 @@ export default class ClaudianPlugin extends Plugin {
   }
 
   /** Computes a hash of model and provider base URL environment variables for change detection. */
-  private computeEnvHash(envText: string): string {
+  computeEnvHash(envText: string): string {
     const envVars = parseEnvironmentVariables(envText || '');
     const modelKeys = [
       'ANTHROPIC_MODEL',
@@ -567,11 +591,14 @@ export default class ClaudianPlugin extends Plugin {
 
     // Hash changed - model or provider may have changed.
     // Session invalidation is now handled per-tab by TabManager.
-    // Clear resume sessionId from all conversations since they belong to the old provider.
+    // Clear resume sessionId from conversations on the global env since they
+    // belong to the old provider. Conversations with an explicit per-tab
+    // provider keep their session - they do not consume the global env.
     // Sessions are provider-specific (contain signed thinking blocks, etc.).
     // NOTE: sdkSessionId is retained for loading SDK-stored history.
     const invalidatedConversations: Conversation[] = [];
     for (const conv of this.conversations) {
+      if (conv.providerId !== undefined) continue;
       if (conv.sessionId) {
         conv.sessionId = null;
         invalidatedConversations.push(conv);

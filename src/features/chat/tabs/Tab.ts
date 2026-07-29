@@ -8,7 +8,7 @@ import { DEFAULT_CLAUDE_MODELS, DEFAULT_THINKING_BUDGET, getContextWindowSize } 
 import { t } from '../../../i18n';
 import type ClaudianPlugin from '../../../main';
 import { SlashCommandDropdown } from '../../../shared/components/SlashCommandDropdown';
-import { getEnhancedPath } from '../../../utils/env';
+import { getEnhancedPath, getModelsFromEnvironment, parseEnvironmentVariables } from '../../../utils/env';
 import { getVaultPath } from '../../../utils/path';
 import {
   BrowserSelectionController,
@@ -82,6 +82,12 @@ export function createTab(options: TabCreateOptions): TabData {
     onConversationChanged: (conversationId) => {
       onConversationIdChanged?.(conversationId);
     },
+    onProviderSelectionChanged: () => {
+      // Refresh toolbar controls that reflect the per-tab provider/model
+      tab.ui.providerSelector?.refresh();
+      tab.ui.modelSelector?.refresh();
+      tab.ui.thinkingBudgetSelector?.updateDisplay();
+    },
   });
 
   // Create subagent manager with no-op callback.
@@ -134,6 +140,16 @@ export function createTab(options: TabCreateOptions): TabData {
     dom,
     renderer: null,
   };
+
+  // Seed the per-tab provider selection from the conversation's explicit
+  // per-tab provider (if any). Tabs without one follow the global defaults.
+  if (conversation?.providerId !== undefined) {
+    state.providerSelection = {
+      providerId: conversation.providerId,
+      envVars: conversation.envVars ?? '',
+      model: conversation.model,
+    };
+  }
 
   return tab;
 }
@@ -253,6 +269,14 @@ export async function initializeTabService(
   try {
     // Create per-tab ClaudianService
     service = new ClaudianService(plugin, mcpManager);
+    // Apply the tab's explicit per-tab provider env/model (if any) so the
+    // SDK process spawns against the right provider from the start.
+    if (tab.state.providerSelection) {
+      service.setConversationEnvironment(
+        tab.state.providerSelection.envVars,
+        tab.state.providerSelection.model
+      );
+    }
     unsubscribeReadyState = service.onReadyStateChange((ready) => {
       tab.ui.modelSelector?.setReady(ready);
     });
@@ -398,7 +422,11 @@ function initializeSlashCommands(
 function initializeInstructionAndTodo(tab: TabData, plugin: ClaudianPlugin): void {
   const { dom } = tab;
 
-  tab.services.instructionRefineService = new InstructionRefineService(plugin);
+  tab.services.instructionRefineService = new InstructionRefineService(
+    plugin,
+    () => tab.state.providerSelection?.envVars ?? plugin.getActiveEnvironmentVariables(),
+    () => tab.state.providerSelection?.model ?? plugin.settings.model
+  );
   tab.services.titleGenerationService = new TitleGenerationService(plugin);
   tab.ui.instructionModeManager = new InstructionModeManagerClass(
     dom.inputEl,
@@ -451,14 +479,26 @@ function initializeInputToolbar(tab: TabData, plugin: ClaudianPlugin): void {
   const inputToolbar = dom.inputWrapper.createDiv({ cls: 'claudian-input-toolbar' });
   const toolbarComponents = createInputToolbar(inputToolbar, {
     getSettings: () => ({
-      model: plugin.settings.model,
+      model: (tab.state.providerSelection?.model ?? plugin.settings.model) as ClaudeModel,
       thinkingBudget: plugin.settings.thinkingBudget,
       permissionMode: plugin.settings.permissionMode,
       show1MModel: plugin.settings.show1MModel,
     }),
-    getEnvironmentVariables: () => plugin.getActiveEnvironmentVariables(),
+    getEnvironmentVariables: () => tab.state.providerSelection?.envVars ?? plugin.getActiveEnvironmentVariables(),
+    getSelectedProviderId: () => tab.state.providerSelection?.providerId,
     onModelChange: async (model: ClaudeModel) => {
-      plugin.settings.model = model;
+      const selection = tab.state.providerSelection;
+      if (selection) {
+        // Explicit per-tab provider: scope the model change to this tab only,
+        // so other tabs never send this provider's model id.
+        tab.state.providerSelection = { ...selection, model };
+        tab.service?.setConversationEnvironment(selection.envVars, model);
+        if (tab.state.currentConversationId) {
+          await plugin.updateConversation(tab.state.currentConversationId, { model });
+        }
+      } else {
+        plugin.settings.model = model;
+      }
       const isDefaultModel = DEFAULT_CLAUDE_MODELS.find((m) => m.value === model);
       if (isDefaultModel) {
         plugin.settings.thinkingBudget = DEFAULT_THINKING_BUDGET[model];
@@ -494,8 +534,68 @@ function initializeInputToolbar(tab: TabData, plugin: ClaudianPlugin): void {
       dom.inputWrapper.toggleClass('claudian-input-plan-mode', mode === 'plan');
     },
     onProviderChange: async (snippet: EnvSnippet | null) => {
-      // Apply the environment variables from the selected snippet
-      await plugin.applyEnvironmentVariables(snippet?.envVars || '');
+      // Per-tab provider switch: write env/model/providerId onto THIS tab's
+      // conversation and respawn THIS tab's SDK process only. Never touches
+      // the plugin-global applyEnvironmentVariables (that fan-out is reserved
+      // for the Settings panel, where a plugin-wide default is intended).
+      const envText = snippet?.envVars || '';
+      const providerId = snippet?.id ?? '';
+      const previous = tab.state.providerSelection;
+
+      const normalize = (s: string) => s.trim().replace(/\r\n/g, '\n');
+      const previousEnv = previous?.envVars ?? plugin.getActiveEnvironmentVariables();
+      const envTextChanged = normalize(previousEnv) !== normalize(envText);
+      const hashChanged = plugin.computeEnvHash(previousEnv) !== plugin.computeEnvHash(envText);
+
+      // Resolve the model for the new provider (env + model scoping are
+      // co-requisites: a tab must never send another provider's model id).
+      const envVars = parseEnvironmentVariables(envText);
+      const customModels = getModelsFromEnvironment(envVars);
+      const model = customModels.length > 0
+        ? plugin.getPreferredCustomModel(envVars, customModels)
+        : (plugin.settings.lastClaudeModel ?? DEFAULT_CLAUDE_MODELS[0].value);
+
+      // Store the selection on tab state (drives toolbar + service seeding)
+      tab.state.providerSelection = { providerId, envVars: envText, model };
+
+      // Persist onto the conversation (a fresh tab's conversation is created
+      // lazily on first message and picks the selection up at save time)
+      const conversationId = tab.state.currentConversationId;
+      if (conversationId) {
+        await plugin.updateConversation(conversationId, {
+          providerId,
+          envVars: envText,
+          model,
+          lastEnvHash: plugin.computeEnvHash(envText),
+          // Provider-identity change: session belongs to the old provider
+          ...(hashChanged ? { sessionId: null } : {}),
+        });
+      }
+
+      // Tab-local respawn: base_url/API key are baked into the SDK child
+      // process at spawn time, so a provider change must rebuild this tab's
+      // query (and only this tab's).
+      if (envTextChanged) {
+        if (tab.state.isStreaming) {
+          tab.controllers.inputController?.cancelStreaming();
+        }
+        const service = tab.service;
+        if (service && tab.serviceInitialized) {
+          service.setConversationEnvironment(envText, model);
+          const externalContextPaths = tab.ui.externalContextSelector?.getExternalContexts() ?? [];
+          if (hashChanged) {
+            service.resetSession();
+            await service.ensureReady({ externalContextPaths });
+          } else {
+            // Same provider, env detail changed (e.g. key rotation): restart
+            // the process but keep the resumable session.
+            await service.ensureReady({ externalContextPaths, force: true });
+          }
+        }
+      } else {
+        tab.service?.setConversationEnvironment(envText, model);
+      }
+
       // Refresh the model selector to show models available for the new provider
       tab.ui.modelSelector?.refresh();
     },

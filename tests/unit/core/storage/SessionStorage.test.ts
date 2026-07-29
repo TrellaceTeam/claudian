@@ -1172,4 +1172,76 @@ describe('SessionStorage', () => {
       expect(metadata.forkSource).toBeUndefined();
     });
   });
+
+  describe('per-tab provider fields', () => {
+    const providerConversation: Conversation = {
+      id: 'conv-provider',
+      title: 'Provider Test',
+      createdAt: 1700000000,
+      updatedAt: 1700001000,
+      sessionId: 'sdk-session',
+      messages: [],
+      providerId: 'snippet-deepseek',
+      envVars: 'ANTHROPIC_BASE_URL=https://api.deepseek.example/anthropic\nANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro',
+      model: 'deepseek-v4-pro',
+      lastEnvHash: 'ANTHROPIC_BASE_URL=https://api.deepseek.example/anthropic|ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro',
+    };
+
+    it('round-trips providerId/envVars/model/lastEnvHash through JSONL', async () => {
+      let written = '';
+      mockAdapter.write.mockImplementation(async (_path: string, content: string) => {
+        written = content;
+      });
+      await storage.saveConversation(providerConversation);
+
+      mockAdapter.exists.mockResolvedValue(true);
+      mockAdapter.read.mockResolvedValue(written);
+      const loaded = await storage.loadConversation(providerConversation.id);
+
+      expect(loaded?.providerId).toBe('snippet-deepseek');
+      expect(loaded?.envVars).toBe(providerConversation.envVars);
+      expect(loaded?.model).toBe('deepseek-v4-pro');
+      expect(loaded?.lastEnvHash).toBe(providerConversation.lastEnvHash);
+    });
+
+    it('defaults conversations saved without provider fields to undefined (global env)', async () => {
+      const jsonlContent = '{"type":"meta","id":"conv-legacy","title":"Legacy","createdAt":1700000000,"updatedAt":1700001000,"sessionId":"sdk-session"}';
+      mockAdapter.exists.mockResolvedValue(true);
+      mockAdapter.read.mockResolvedValue(jsonlContent);
+
+      const loaded = await storage.loadConversation('conv-legacy');
+
+      expect(loaded?.providerId).toBeUndefined();
+      expect(loaded?.envVars).toBeUndefined();
+      expect(loaded?.model).toBeUndefined();
+      expect(loaded?.lastEnvHash).toBeUndefined();
+    });
+
+    it('carries per-tab provider fields into native SessionMetadata', () => {
+      const metadata = storage.toSessionMetadata(providerConversation);
+
+      expect(metadata.providerId).toBe('snippet-deepseek');
+      expect(metadata.envVars).toBe(providerConversation.envVars);
+      expect(metadata.model).toBe('deepseek-v4-pro');
+      expect(metadata.lastEnvHash).toBe(providerConversation.lastEnvHash);
+    });
+
+    it('omits per-tab provider fields from SessionMetadata when not set', () => {
+      const conversation: Conversation = {
+        id: 'conv-global',
+        title: 'Global Env',
+        createdAt: 1700000000,
+        updatedAt: 1700001000,
+        sessionId: 'sdk-session',
+        messages: [],
+      };
+
+      const metadata = storage.toSessionMetadata(conversation);
+
+      expect(metadata.providerId).toBeUndefined();
+      expect(metadata.envVars).toBeUndefined();
+      expect(metadata.model).toBeUndefined();
+      expect(metadata.lastEnvHash).toBeUndefined();
+    });
+  });
 });

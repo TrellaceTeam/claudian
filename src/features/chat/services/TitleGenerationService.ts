@@ -41,8 +41,9 @@ export class TitleGenerationService {
       return;
     }
 
+    const conversation = await this.plugin.getConversationById(conversationId);
     const envVars = parseEnvironmentVariables(
-      this.plugin.getActiveEnvironmentVariables()
+      this.plugin.getEnvironmentVariablesForConversation(conversation)
     );
 
     const resolvedClaudePath = this.plugin.getResolvedClaudeCliPath();

@@ -219,6 +219,20 @@ export class ConversationController {
       ? conversation.externalContextPaths || []
       : plugin.settings.persistentExternalContextPaths || [];
 
+    // Seed the per-tab provider selection from the conversation (explicit
+    // per-tab provider overrides the global defaults for this tab only)
+    state.providerSelection = conversation.providerId !== undefined
+      ? {
+        providerId: conversation.providerId,
+        envVars: conversation.envVars ?? '',
+        model: conversation.model,
+      }
+      : null;
+    this.getAgentService()?.setConversationEnvironment(
+      state.providerSelection?.envVars,
+      state.providerSelection?.model
+    );
+
     this.getAgentService()?.setSessionId(conversation.sessionId ?? null, externalContextPaths);
     const fileCtx = this.deps.getFileContextManager();
     fileCtx?.resetForLoadedConversation(hasMessages);
@@ -292,8 +306,24 @@ export class ConversationController {
         ? conversation.externalContextPaths || []
         : plugin.settings.persistentExternalContextPaths || [];
 
-      // Update agent service session ID with correct external contexts
+      // Seed the per-tab provider selection from the conversation (explicit
+      // per-tab provider overrides the global defaults for this tab only).
+      // Applied BEFORE setSessionId triggers ensureReady - the env is baked
+      // into the SDK process at spawn time.
+      state.providerSelection = conversation.providerId !== undefined
+        ? {
+          providerId: conversation.providerId,
+          envVars: conversation.envVars ?? '',
+          model: conversation.model,
+        }
+        : null;
       const agentService = this.getAgentService();
+      agentService?.setConversationEnvironment(
+        state.providerSelection?.envVars,
+        state.providerSelection?.model
+      );
+
+      // Update agent service session ID with correct external contexts
       if (agentService) {
         const resolvedSessionId = agentService.applyForkState(conversation);
         agentService.setSessionId(resolvedSessionId, externalContextPaths);
@@ -504,6 +534,15 @@ export class ConversationController {
       usage: state.usage ?? undefined,
       enabledMcpServers: enabledMcpServers.length > 0 ? enabledMcpServers : undefined,
     };
+
+    // Persist the tab's explicit per-tab provider selection (when set), so the
+    // conversation reopens against the same provider and model.
+    if (state.providerSelection) {
+      updates.providerId = state.providerSelection.providerId;
+      updates.envVars = state.providerSelection.envVars;
+      updates.model = state.providerSelection.model;
+      updates.lastEnvHash = plugin.computeEnvHash(state.providerSelection.envVars);
+    }
 
     if (updateLastResponse) {
       updates.lastResponseAt = Date.now();

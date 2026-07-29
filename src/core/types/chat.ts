@@ -110,6 +110,26 @@ export interface Conversation {
   resumeSessionAt?: string;
   /** Fork origin: source session to resume + fork from. Cleared after first SDK session init. */
   forkSource?: ForkSource;
+  /**
+   * Per-tab provider selection (EnvSnippet id; '' = built-in Claude).
+   * Undefined = no explicit per-tab provider; follows the plugin-global env default.
+   */
+  providerId?: string;
+  /**
+   * Per-tab environment variable override (raw snippet env text).
+   * Only meaningful when providerId is set; undefined = follow the global env.
+   */
+  envVars?: string;
+  /**
+   * Per-tab model override. Scoped with envVars so a tab never sends another
+   * provider's model id. Undefined = follow the global settings.model.
+   */
+  model?: string;
+  /**
+   * Hash of model/provider keys from envVars (same scheme as settings.lastEnvHash).
+   * Used to detect provider-identity changes for this conversation only.
+   */
+  lastEnvHash?: string;
 }
 
 /** Lightweight conversation metadata for the history dropdown. */
@@ -169,6 +189,14 @@ export interface SessionMetadata {
   resumeSessionAt?: string;
   /** Fork origin: source session to resume + fork from. Cleared after first SDK session init. */
   forkSource?: ForkSource;
+  /** Per-tab provider selection (EnvSnippet id; '' = built-in Claude). Undefined = follow global default. */
+  providerId?: string;
+  /** Per-tab environment variable override (raw snippet env text). */
+  envVars?: string;
+  /** Per-tab model override (scoped with envVars). */
+  model?: string;
+  /** Hash of model/provider keys from envVars (per-conversation change detection). */
+  lastEnvHash?: string;
 }
 
 /** Normalized stream chunk from the Claude Agent SDK. */
