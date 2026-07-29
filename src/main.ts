@@ -333,6 +333,7 @@ export default class ClaudianPlugin extends Plugin {
       conversation.envVars = meta.envVars ?? conversation.envVars;
       conversation.model = meta.model ?? conversation.model;
       conversation.lastEnvHash = meta.lastEnvHash ?? conversation.lastEnvHash;
+      conversation.ultracode = meta.ultracode ?? conversation.ultracode;
     }
 
     // Also load native session metadata (no legacy JSONL)
@@ -369,6 +370,7 @@ export default class ClaudianPlugin extends Plugin {
           envVars: meta.envVars,
           model: meta.model,
           lastEnvHash: meta.lastEnvHash,
+          ultracode: meta.ultracode,
         };
       });
 

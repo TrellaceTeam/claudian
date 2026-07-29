@@ -8,7 +8,7 @@ import { DEFAULT_CLAUDE_MODELS, DEFAULT_THINKING_BUDGET, getContextWindowSize } 
 import { t } from '../../../i18n';
 import type ClaudianPlugin from '../../../main';
 import { SlashCommandDropdown } from '../../../shared/components/SlashCommandDropdown';
-import { getEnhancedPath, getModelsFromEnvironment, parseEnvironmentVariables } from '../../../utils/env';
+import { getEnhancedPath, getModelsFromEnvironment, isCustomProviderEnv, parseEnvironmentVariables } from '../../../utils/env';
 import { getVaultPath } from '../../../utils/path';
 import {
   BrowserSelectionController,
@@ -88,6 +88,9 @@ export function createTab(options: TabCreateOptions): TabData {
       tab.ui.modelSelector?.refresh();
       tab.ui.thinkingBudgetSelector?.updateDisplay();
     },
+    onUltracodeChanged: () => {
+      tab.ui.ultracodeToggle?.updateDisplay();
+    },
   });
 
   // Create subagent manager with no-op callback.
@@ -129,6 +132,7 @@ export function createTab(options: TabCreateOptions): TabData {
       externalContextSelector: null,
       mcpServerSelector: null,
       permissionToggle: null,
+      ultracodeToggle: null,
       slashCommandDropdown: null,
       instructionModeManager: null,
       bangBashModeManager: null,
@@ -150,6 +154,9 @@ export function createTab(options: TabCreateOptions): TabData {
       model: conversation.model,
     };
   }
+
+  // Seed the per-tab ultracode toggle from the conversation (default off).
+  state.ultracode = conversation?.ultracode ?? false;
 
   return tab;
 }
@@ -277,6 +284,7 @@ export async function initializeTabService(
         tab.state.providerSelection.model
       );
     }
+    service.setConversationUltracode(tab.state.ultracode);
     unsubscribeReadyState = service.onReadyStateChange((ready) => {
       tab.ui.modelSelector?.setReady(ready);
     });
@@ -483,6 +491,7 @@ function initializeInputToolbar(tab: TabData, plugin: ClaudianPlugin): void {
       thinkingBudget: plugin.settings.thinkingBudget,
       permissionMode: plugin.settings.permissionMode,
       show1MModel: plugin.settings.show1MModel,
+      ultracode: tab.state.ultracode,
     }),
     getEnvironmentVariables: () => tab.state.providerSelection?.envVars ?? plugin.getActiveEnvironmentVariables(),
     getSelectedProviderId: () => tab.state.providerSelection?.providerId,
@@ -527,11 +536,48 @@ function initializeInputToolbar(tab: TabData, plugin: ClaudianPlugin): void {
     onThinkingBudgetChange: async (budget: ThinkingBudget) => {
       plugin.settings.thinkingBudget = budget;
       await plugin.saveSettings();
+
+      // Custom providers map the Thinking level onto CLAUDE_CODE_EFFORT_LEVEL,
+      // which is baked into the spawned CLI env - respawn this tab's process
+      // (session preserved) so the new level takes effect. Native Claude
+      // updates maxThinkingTokens dynamically on next send instead.
+      const envText = tab.state.providerSelection?.envVars ?? plugin.getActiveEnvironmentVariables();
+      if (!isCustomProviderEnv(parseEnvironmentVariables(envText))) return;
+
+      if (tab.state.isStreaming) {
+        tab.controllers.inputController?.cancelStreaming();
+      }
+      const service = tab.service;
+      if (service && tab.serviceInitialized) {
+        const externalContextPaths = tab.ui.externalContextSelector?.getExternalContexts() ?? [];
+        await service.ensureReady({ externalContextPaths, force: true });
+      }
     },
     onPermissionModeChange: async (mode) => {
       plugin.settings.permissionMode = mode;
       await plugin.saveSettings();
       dom.inputWrapper.toggleClass('claudian-input-plan-mode', mode === 'plan');
+    },
+    onUltracodeChange: async (enabled: boolean) => {
+      // Per-tab ultracode switch: write onto THIS tab's conversation and
+      // respawn THIS tab's SDK process only. The CLI --settings flag is baked
+      // at spawn time; the resumable session is preserved across the restart.
+      tab.state.ultracode = enabled;
+      tab.service?.setConversationUltracode(enabled);
+
+      const conversationId = tab.state.currentConversationId;
+      if (conversationId) {
+        await plugin.updateConversation(conversationId, { ultracode: enabled });
+      }
+
+      if (tab.state.isStreaming) {
+        tab.controllers.inputController?.cancelStreaming();
+      }
+      const service = tab.service;
+      if (service && tab.serviceInitialized) {
+        const externalContextPaths = tab.ui.externalContextSelector?.getExternalContexts() ?? [];
+        await service.ensureReady({ externalContextPaths, force: true });
+      }
     },
     onProviderChange: async (snippet: EnvSnippet | null) => {
       // Per-tab provider switch: write env/model/providerId onto THIS tab's
@@ -607,6 +653,7 @@ function initializeInputToolbar(tab: TabData, plugin: ClaudianPlugin): void {
   tab.ui.externalContextSelector = toolbarComponents.externalContextSelector;
   tab.ui.mcpServerSelector = toolbarComponents.mcpServerSelector;
   tab.ui.permissionToggle = toolbarComponents.permissionToggle;
+  tab.ui.ultracodeToggle = toolbarComponents.ultracodeToggle ?? null;
   tab.ui.providerSelector = toolbarComponents.providerSelector ?? null;
 
   tab.ui.mcpServerSelector.setMcpManager(plugin.mcpManager);
@@ -1307,6 +1354,7 @@ export function setupServiceCallbacks(tab: TabData, plugin: ClaudianPlugin): voi
       let mode: PermissionMode;
       if (sdkMode === 'bypassPermissions') mode = 'yolo';
       else if (sdkMode === 'plan') mode = 'plan';
+      else if (sdkMode === 'default') mode = 'default';
       else mode = 'normal';
 
       if (plugin.settings.permissionMode !== mode) {

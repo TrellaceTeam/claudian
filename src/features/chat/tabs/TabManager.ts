@@ -194,6 +194,7 @@ export class TabManager implements TabManagerInterface {
             tab.state.providerSelection?.envVars,
             tab.state.providerSelection?.model
           );
+          tab.service.setConversationUltracode(tab.state.ultracode);
 
           const resolvedSessionId = tab.service.applyForkState(conversation);
           tab.service.setSessionId(resolvedSessionId, externalContextPaths);

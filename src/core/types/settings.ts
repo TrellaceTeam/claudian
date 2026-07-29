@@ -118,7 +118,7 @@ export function getCliPlatformKey(): CliPlatformKey {
 export type HostnameCliPaths = Record<string, string>;
 
 /** Permission mode for tool execution. */
-export type PermissionMode = 'yolo' | 'plan' | 'normal';
+export type PermissionMode = 'yolo' | 'plan' | 'normal' | 'default';
 
 /** User decision from the approval modal. */
 export type ApprovalDecision = 'allow' | 'allow-always' | 'deny' | 'cancel';

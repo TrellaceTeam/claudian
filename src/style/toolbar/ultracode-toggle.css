@@ -1,0 +1,13 @@
+/* Ultracode Toggle (switch styles shared with .claudian-toggle-switch) */
+.claudian-ultracode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.claudian-ultracode-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}

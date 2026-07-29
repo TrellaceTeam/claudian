@@ -16,3 +16,4 @@ export { type InstructionModeCallbacks, InstructionModeManager, type Instruction
 export { NavigationSidebar } from './NavigationSidebar';
 export { ProviderSelector } from './ProviderSelector';
 export { type PanelBashOutput, type PanelSubagentInfo, StatusPanel } from './StatusPanel';
+export { UltracodeToggle } from './UltracodeToggle';

@@ -15,8 +15,10 @@ const {
   getMissingNodeError,
   getModelsFromEnvironment,
   getHostnameKey,
+  isCustomProviderEnv,
   parseContextLimit,
   parseEnvironmentVariables,
+  THINKING_BUDGET_EFFORT_LEVELS,
 } = env;
 
 const isWindows = process.platform === 'win32';
@@ -61,6 +63,41 @@ describe('parseEnvironmentVariables', () => {
   it('handles mixed export and non-export lines', () => {
     const input = 'FOO=bar\nexport BAZ=qux\nQUX=123';
     expect(parseEnvironmentVariables(input)).toEqual({ FOO: 'bar', BAZ: 'qux', QUX: '123' });
+  });
+});
+
+describe('isCustomProviderEnv', () => {
+  it('returns true when ANTHROPIC_BASE_URL is set', () => {
+    expect(isCustomProviderEnv({ ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic' })).toBe(true);
+  });
+
+  it('returns false when ANTHROPIC_BASE_URL is absent', () => {
+    expect(isCustomProviderEnv({ ANTHROPIC_API_KEY: 'sk-test' })).toBe(false);
+    expect(isCustomProviderEnv({})).toBe(false);
+  });
+
+  it('returns false when ANTHROPIC_BASE_URL is blank', () => {
+    expect(isCustomProviderEnv({ ANTHROPIC_BASE_URL: '' })).toBe(false);
+    expect(isCustomProviderEnv({ ANTHROPIC_BASE_URL: '   ' })).toBe(false);
+  });
+});
+
+describe('THINKING_BUDGET_EFFORT_LEVELS', () => {
+  it('maps every Thinking selector level', () => {
+    expect(THINKING_BUDGET_EFFORT_LEVELS.off).toBeUndefined();
+    expect(THINKING_BUDGET_EFFORT_LEVELS.low).toBe('low');
+    expect(THINKING_BUDGET_EFFORT_LEVELS.medium).toBe('medium');
+    expect(THINKING_BUDGET_EFFORT_LEVELS.high).toBe('high');
+    expect(THINKING_BUDGET_EFFORT_LEVELS.xhigh).toBe('max');
+  });
+
+  it('only uses values accepted by the CLI (low/medium/high/max)', () => {
+    const accepted = new Set(['low', 'medium', 'high', 'max']);
+    const levels = Object.values(THINKING_BUDGET_EFFORT_LEVELS).filter(l => l !== undefined);
+    expect(levels.length).toBeGreaterThan(0);
+    for (const level of levels) {
+      expect(accepted.has(level as string)).toBe(true);
+    }
   });
 });
 

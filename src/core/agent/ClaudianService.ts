@@ -32,7 +32,7 @@ import * as path from 'path';
 
 import type ClaudianPlugin from '../../main';
 import { stripCurrentNoteContext } from '../../utils/context';
-import { getEnhancedPath, getMissingNodeError, parseEnvironmentVariables } from '../../utils/env';
+import { getEnhancedPath, getMissingNodeError, isCustomProviderEnv, parseEnvironmentVariables, THINKING_BUDGET_EFFORT_LEVELS } from '../../utils/env';
 import { getPathAccessType, getVaultPath } from '../../utils/path';
 import {
   buildContextFromHistory,
@@ -167,6 +167,12 @@ export class ClaudianService {
    */
   private conversationEnvVars: string | undefined;
   private conversationModel: string | undefined;
+  /**
+   * Per-tab ultracode toggle from the conversation bound to this service.
+   * Passed to the CLI as --settings '{"ultracode":true}', baked at spawn time,
+   * so toggling requires a respawn driven by the tab's toggle handler.
+   */
+  private conversationUltracode: boolean | undefined;
 
   // Last sent message for crash recovery (Phase 1.3)
   private lastSentMessage: SDKUserMessage | null = null;
@@ -218,6 +224,14 @@ export class ClaudianService {
 
   getConversationEnvVars(): string | undefined {
     return this.conversationEnvVars;
+  }
+
+  /**
+   * Sets the per-tab ultracode toggle for this service.
+   * Does not respawn the SDK process by itself - callers drive that.
+   */
+  setConversationUltracode(enabled: boolean | undefined): void {
+    this.conversationUltracode = enabled;
   }
 
   /** Effective env text for spawning queries: per-tab override or the global default. */
@@ -481,6 +495,18 @@ export class ClaudianService {
    */
   private buildQueryOptionsContext(vaultPath: string, cliPath: string): QueryOptionsContext {
     const customEnv = parseEnvironmentVariables(this.getEffectiveEnvText());
+    // Custom providers (base-URL override) ignore the Anthropic thinking-budget
+    // knob; map the Thinking selector onto CLAUDE_CODE_EFFORT_LEVEL instead.
+    // Injected into the parsed env here - never into snippet raw text - and
+    // baked into the SDK child process at spawn time.
+    if (isCustomProviderEnv(customEnv)) {
+      const effortLevel = THINKING_BUDGET_EFFORT_LEVELS[this.plugin.settings.thinkingBudget];
+      if (effortLevel) {
+        customEnv.CLAUDE_CODE_EFFORT_LEVEL = effortLevel;
+      } else {
+        delete customEnv.CLAUDE_CODE_EFFORT_LEVEL;
+      }
+    }
     const enhancedPath = getEnhancedPath(customEnv.PATH, cliPath);
 
     return {
@@ -492,6 +518,7 @@ export class ClaudianService {
       mcpManager: this.mcpManager,
       pluginManager: this.plugin.pluginManager,
       modelOverride: this.conversationModel,
+      ultracode: this.conversationUltracode,
     };
   }
 
@@ -1169,9 +1196,12 @@ export class ClaudianService {
       }
     }
 
-    // Update thinking tokens if changed
+    // Update thinking tokens if changed.
+    // Custom providers drive effort via CLAUDE_CODE_EFFORT_LEVEL baked into the
+    // spawn env instead; never send maxThinkingTokens to them.
+    const customProvider = isCustomProviderEnv(parseEnvironmentVariables(this.getEffectiveEnvText()));
     const currentThinking = this.currentConfig?.thinkingTokens ?? null;
-    if (thinkingTokens !== currentThinking) {
+    if (!customProvider && thinkingTokens !== currentThinking) {
       try {
         await this.persistentQuery.setMaxThinkingTokens(thinkingTokens);
         if (this.currentConfig) {
@@ -1804,6 +1834,7 @@ export class ClaudianService {
   private mapToSDKPermissionMode(mode: PermissionMode): SDKPermissionMode {
     if (mode === 'yolo') return 'bypassPermissions';
     if (mode === 'plan') return 'plan';
+    if (mode === 'default') return 'default';
     return 'acceptEdits';
   }
 }

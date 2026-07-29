@@ -130,6 +130,11 @@ export interface Conversation {
    * Used to detect provider-identity changes for this conversation only.
    */
   lastEnvHash?: string;
+  /**
+   * Per-tab ultracode toggle (CLI --settings '{"ultracode":true}').
+   * Undefined/false = off (default).
+   */
+  ultracode?: boolean;
 }
 
 /** Lightweight conversation metadata for the history dropdown. */
@@ -197,6 +202,8 @@ export interface SessionMetadata {
   model?: string;
   /** Hash of model/provider keys from envVars (per-conversation change detection). */
   lastEnvHash?: string;
+  /** Per-tab ultracode toggle. Undefined/false = off (default). */
+  ultracode?: boolean;
 }
 
 /** Normalized stream chunk from the Claude Agent SDK. */

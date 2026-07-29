@@ -9,6 +9,7 @@ import {
   PermissionToggle,
   ThinkingBudgetSelector,
 } from '@/features/chat/ui/InputToolbar';
+import { UltracodeToggle } from '@/features/chat/ui/UltracodeToggle';
 
 jest.mock('obsidian', () => ({
   Notice: jest.fn(),
@@ -241,9 +242,22 @@ describe('PermissionToggle', () => {
     expect(container).not.toBeNull();
   });
 
-  it('should display Safe label when in normal mode', () => {
+  it('should display Accept edits label when in normal mode', () => {
     const label = parentEl.querySelector('.claudian-permission-label');
-    expect(label?.textContent).toBe('Safe');
+    expect(label?.textContent).toBe('Accept edits');
+  });
+
+  it('should display Default label when in default mode', () => {
+    callbacks.getSettings.mockReturnValue({
+      model: 'sonnet',
+      thinkingBudget: 'low',
+      permissionMode: 'default',
+    });
+    const parentEl2 = createMockEl();
+    new PermissionToggle(parentEl2, callbacks);
+
+    const label = parentEl2.querySelector('.claudian-permission-label');
+    expect(label?.textContent).toBe('Default');
   });
 
   it('should display YOLO label when in yolo mode', () => {
@@ -259,7 +273,7 @@ describe('PermissionToggle', () => {
     expect(label?.textContent).toBe('YOLO');
   });
 
-  it('should show PLAN label and hide toggle in plan mode', () => {
+  it('should display Plan label with plan-active class in plan mode', () => {
     callbacks.getSettings.mockReturnValue({
       model: 'sonnet',
       thinkingBudget: 'low',
@@ -269,49 +283,52 @@ describe('PermissionToggle', () => {
     new PermissionToggle(parentEl2, callbacks);
 
     const label = parentEl2.querySelector('.claudian-permission-label');
-    expect(label?.textContent).toBe('PLAN');
+    expect(label?.textContent).toBe('Plan');
     expect(label?.hasClass('plan-active')).toBe(true);
-
-    const toggle = parentEl2.querySelector('.claudian-toggle-switch');
-    expect(toggle?.style.display).toBe('none');
   });
 
-  it('should add active class when in yolo mode', () => {
-    callbacks.getSettings.mockReturnValue({
-      model: 'sonnet',
-      thinkingBudget: 'low',
-      permissionMode: 'yolo',
-    });
-    const parentEl2 = createMockEl();
-    new PermissionToggle(parentEl2, callbacks);
-
-    const toggle = parentEl2.querySelector('.claudian-toggle-switch');
-    expect(toggle?.hasClass('active')).toBe(true);
+  it('should render the four permission levels in reverse escalation order', () => {
+    const dropdown = parentEl.querySelector('.claudian-permission-dropdown');
+    expect(dropdown).not.toBeNull();
+    const options = dropdown?.children || [];
+    expect(options.length).toBe(4);
+    expect(options[0]?.children[0]?.textContent).toBe('YOLO');
+    expect(options[1]?.children[0]?.textContent).toBe('Plan');
+    expect(options[2]?.children[0]?.textContent).toBe('Accept edits');
+    expect(options[3]?.children[0]?.textContent).toBe('Default');
   });
 
-  it('should not have active class in normal mode', () => {
-    const toggle = parentEl.querySelector('.claudian-toggle-switch');
-    expect(toggle?.hasClass('active')).toBe(false);
+  it('should not offer a dontAsk option', () => {
+    const dropdown = parentEl.querySelector('.claudian-permission-dropdown');
+    const options = dropdown?.children || [];
+    const labels = options.map((o: any) => o.children[0]?.textContent);
+    expect(labels).not.toContain('Dont ask');
+    expect(labels).not.toContain("Don't ask");
   });
 
-  it('should toggle from normal to yolo on click', async () => {
-    const toggle = parentEl.querySelector('.claudian-toggle-switch');
-    await toggle?.dispatchEvent('click');
+  it('should mark current mode as selected', () => {
+    const dropdown = parentEl.querySelector('.claudian-permission-dropdown');
+    const options = dropdown?.children || [];
+    const selected = options.find((o: any) => o.children[0]?.textContent === 'Accept edits');
+    expect(selected?.hasClass('selected')).toBe(true);
+  });
+
+  it('should call onPermissionModeChange with the option value on click', async () => {
+    const dropdown = parentEl.querySelector('.claudian-permission-dropdown');
+    const options = dropdown?.children || [];
+    const yoloOption = options.find((o: any) => o.children[0]?.textContent === 'YOLO');
+
+    await yoloOption?.dispatchEvent('click', { stopPropagation: () => {} });
     expect(callbacks.onPermissionModeChange).toHaveBeenCalledWith('yolo');
   });
 
-  it('should toggle from yolo to normal on click', async () => {
-    callbacks.getSettings.mockReturnValue({
-      model: 'sonnet',
-      thinkingBudget: 'low',
-      permissionMode: 'yolo',
-    });
-    const parentEl2 = createMockEl();
-    new PermissionToggle(parentEl2, callbacks);
+  it('should call onPermissionModeChange with default when Default is clicked', async () => {
+    const dropdown = parentEl.querySelector('.claudian-permission-dropdown');
+    const options = dropdown?.children || [];
+    const defaultOption = options.find((o: any) => o.children[0]?.textContent === 'Default');
 
-    const toggle = parentEl2.querySelector('.claudian-toggle-switch');
-    await toggle?.dispatchEvent('click');
-    expect(callbacks.onPermissionModeChange).toHaveBeenCalledWith('normal');
+    await defaultOption?.dispatchEvent('click', { stopPropagation: () => {} });
+    expect(callbacks.onPermissionModeChange).toHaveBeenCalledWith('default');
   });
 });
 
@@ -658,5 +675,87 @@ describe('createInputToolbar', () => {
     expect(toolbar.contextUsageMeter).toBeInstanceOf(ContextUsageMeter);
     expect(toolbar.mcpServerSelector).toBeInstanceOf(McpServerSelector);
     expect(toolbar.permissionToggle).toBeInstanceOf(PermissionToggle);
+  });
+
+  it('should not create an ultracode toggle without an onUltracodeChange handler', () => {
+    const parentEl = createMockEl();
+    const callbacks = createMockCallbacks();
+    const toolbar = createInputToolbar(parentEl, callbacks);
+
+    expect(toolbar.ultracodeToggle).toBeUndefined();
+  });
+
+  it('should create an ultracode toggle when onUltracodeChange is provided', () => {
+    const parentEl = createMockEl();
+    const callbacks = createMockCallbacks({
+      onUltracodeChange: jest.fn().mockResolvedValue(undefined),
+    });
+    const toolbar = createInputToolbar(parentEl, callbacks);
+
+    expect(toolbar.ultracodeToggle).toBeInstanceOf(UltracodeToggle);
+  });
+});
+
+describe('UltracodeToggle', () => {
+  let parentEl: any;
+  let callbacks: ReturnType<typeof createMockCallbacks>;
+  let onUltracodeChange: jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    parentEl = createMockEl();
+    onUltracodeChange = jest.fn().mockResolvedValue(undefined);
+    callbacks = createMockCallbacks({ onUltracodeChange });
+    new UltracodeToggle(parentEl, callbacks);
+  });
+
+  it('should create a container with ultracode-toggle class', () => {
+    const container = parentEl.querySelector('.claudian-ultracode-toggle');
+    expect(container).not.toBeNull();
+  });
+
+  it('should display the Ultracode label', () => {
+    const label = parentEl.querySelector('.claudian-ultracode-label');
+    expect(label?.textContent).toBe('Ultracode');
+  });
+
+  it('should be inactive by default', () => {
+    const toggle = parentEl.querySelector('.claudian-toggle-switch');
+    expect(toggle?.hasClass('active')).toBe(false);
+  });
+
+  it('should be active when ultracode is enabled', () => {
+    callbacks.getSettings.mockReturnValue({
+      model: 'sonnet',
+      thinkingBudget: 'low',
+      permissionMode: 'normal',
+      ultracode: true,
+    });
+    const parentEl2 = createMockEl();
+    new UltracodeToggle(parentEl2, callbacks);
+
+    const toggle = parentEl2.querySelector('.claudian-toggle-switch');
+    expect(toggle?.hasClass('active')).toBe(true);
+  });
+
+  it('should call onUltracodeChange with true when toggled on', async () => {
+    const toggle = parentEl.querySelector('.claudian-toggle-switch');
+    await toggle?.dispatchEvent('click');
+    expect(onUltracodeChange).toHaveBeenCalledWith(true);
+  });
+
+  it('should call onUltracodeChange with false when toggled off', async () => {
+    callbacks.getSettings.mockReturnValue({
+      model: 'sonnet',
+      thinkingBudget: 'low',
+      permissionMode: 'normal',
+      ultracode: true,
+    });
+    const parentEl2 = createMockEl();
+    new UltracodeToggle(parentEl2, callbacks);
+
+    const toggle = parentEl2.querySelector('.claudian-toggle-switch');
+    await toggle?.dispatchEvent('click');
+    expect(onUltracodeChange).toHaveBeenCalledWith(false);
   });
 });

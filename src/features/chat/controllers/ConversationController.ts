@@ -233,6 +233,10 @@ export class ConversationController {
       state.providerSelection?.model
     );
 
+    // Seed the per-tab ultracode toggle from the conversation (default off)
+    state.ultracode = conversation.ultracode ?? false;
+    this.getAgentService()?.setConversationUltracode(state.ultracode);
+
     this.getAgentService()?.setSessionId(conversation.sessionId ?? null, externalContextPaths);
     const fileCtx = this.deps.getFileContextManager();
     fileCtx?.resetForLoadedConversation(hasMessages);
@@ -322,6 +326,12 @@ export class ConversationController {
         state.providerSelection?.envVars,
         state.providerSelection?.model
       );
+
+      // Seed the per-tab ultracode toggle from the conversation (default off).
+      // Applied BEFORE setSessionId triggers ensureReady - the flag is baked
+      // into the SDK process at spawn time.
+      state.ultracode = conversation.ultracode ?? false;
+      agentService?.setConversationUltracode(state.ultracode);
 
       // Update agent service session ID with correct external contexts
       if (agentService) {
@@ -543,6 +553,9 @@ export class ConversationController {
       updates.model = state.providerSelection.model;
       updates.lastEnvHash = plugin.computeEnvHash(state.providerSelection.envVars);
     }
+
+    // Persist the per-tab ultracode toggle (true only; absent = default off).
+    updates.ultracode = state.ultracode || undefined;
 
     if (updateLastResponse) {
       updates.lastResponseAt = Date.now();

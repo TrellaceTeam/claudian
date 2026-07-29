@@ -20,12 +20,15 @@ import { getModelsFromEnvironment, parseEnvironmentVariables } from '../../../ut
 import { filterValidPaths, findConflictingPath, isDuplicatePath, isValidDirectoryPath, validateDirectoryPath } from '../../../utils/externalContext';
 import { expandHomePath, normalizePathForFilesystem } from '../../../utils/path';
 import { ProviderSelector } from './ProviderSelector';
+import { UltracodeToggle } from './UltracodeToggle';
 
 export interface ToolbarSettings {
   model: ClaudeModel;
   thinkingBudget: ThinkingBudget;
   permissionMode: PermissionMode;
   show1MModel?: boolean;
+  /** Per-tab ultracode toggle (baked into the spawned CLI at spawn). */
+  ultracode?: boolean;
 }
 
 export interface ToolbarCallbacks {
@@ -37,6 +40,8 @@ export interface ToolbarCallbacks {
   onProviderChange?: (snippet: EnvSnippet | null) => Promise<void>;
   /** Returns the tab's explicit per-tab provider id, or undefined when following the global default. */
   getSelectedProviderId?: () => string | undefined;
+  /** Per-tab ultracode toggle handler; drives a tab-local respawn. */
+  onUltracodeChange?: (enabled: boolean) => Promise<void>;
 }
 
 export class ModelSelector {
@@ -197,10 +202,18 @@ export class ThinkingBudgetSelector {
   }
 }
 
+/** Permission levels offered by the dropdown, in escalation order. */
+const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string; description: string }[] = [
+  { value: 'default', label: 'Default', description: 'Ask for approval before using tools' },
+  { value: 'normal', label: 'Accept edits', description: 'Auto-accept file edits, ask for other tools' },
+  { value: 'plan', label: 'Plan', description: 'Plan mode - no changes until approved' },
+  { value: 'yolo', label: 'YOLO', description: 'Bypass all permission checks' },
+];
+
 export class PermissionToggle {
   private container: HTMLElement;
-  private toggleEl: HTMLElement | null = null;
-  private labelEl: HTMLElement | null = null;
+  private buttonEl: HTMLElement | null = null;
+  private dropdownEl: HTMLElement | null = null;
   private callbacks: ToolbarCallbacks;
 
   constructor(parentEl: HTMLElement, callbacks: ToolbarCallbacks) {
@@ -212,41 +225,49 @@ export class PermissionToggle {
   private render() {
     this.container.empty();
 
-    this.labelEl = this.container.createSpan({ cls: 'claudian-permission-label' });
-    this.toggleEl = this.container.createDiv({ cls: 'claudian-toggle-switch' });
-
+    this.buttonEl = this.container.createDiv({ cls: 'claudian-permission-btn' });
     this.updateDisplay();
 
-    this.toggleEl.addEventListener('click', () => this.toggle());
+    this.dropdownEl = this.container.createDiv({ cls: 'claudian-permission-dropdown' });
+    this.renderOptions();
   }
 
   updateDisplay() {
-    if (!this.toggleEl || !this.labelEl) return;
+    if (!this.buttonEl) return;
 
     const mode = this.callbacks.getSettings().permissionMode;
+    const option = PERMISSION_MODE_OPTIONS.find(o => o.value === mode);
 
-    if (mode === 'plan') {
-      this.toggleEl.style.display = 'none';
-      this.labelEl.setText('PLAN');
-      this.labelEl.addClass('plan-active');
-    } else {
-      this.toggleEl.style.display = '';
-      this.labelEl.removeClass('plan-active');
-      if (mode === 'yolo') {
-        this.toggleEl.addClass('active');
-        this.labelEl.setText('YOLO');
-      } else {
-        this.toggleEl.removeClass('active');
-        this.labelEl.setText('Safe');
-      }
-    }
+    this.buttonEl.empty();
+
+    const labelEl = this.buttonEl.createSpan({ cls: 'claudian-permission-label' });
+    labelEl.setText(option?.label || 'Accept edits');
+    labelEl.toggleClass('plan-active', mode === 'plan');
+
+    this.renderOptions();
   }
 
-  private async toggle() {
-    const current = this.callbacks.getSettings().permissionMode;
-    const newMode: PermissionMode = current === 'yolo' ? 'normal' : 'yolo';
-    await this.callbacks.onPermissionModeChange(newMode);
-    this.updateDisplay();
+  private renderOptions() {
+    if (!this.dropdownEl) return;
+    this.dropdownEl.empty();
+
+    const currentMode = this.callbacks.getSettings().permissionMode;
+
+    for (const option of [...PERMISSION_MODE_OPTIONS].reverse()) {
+      const optionEl = this.dropdownEl.createDiv({ cls: 'claudian-permission-option' });
+      if (option.value === currentMode) {
+        optionEl.addClass('selected');
+      }
+
+      optionEl.createSpan({ text: option.label });
+      optionEl.setAttribute('title', option.description);
+
+      optionEl.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.callbacks.onPermissionModeChange(option.value);
+        this.updateDisplay();
+      });
+    }
   }
 }
 
@@ -909,6 +930,7 @@ export function createInputToolbar(
   externalContextSelector: ExternalContextSelector;
   mcpServerSelector: McpServerSelector;
   permissionToggle: PermissionToggle;
+  ultracodeToggle?: UltracodeToggle;
   providerSelector?: ProviderSelector;
 } {
   let providerSelector: ProviderSelector | undefined;
@@ -928,7 +950,14 @@ export function createInputToolbar(
   const contextUsageMeter = new ContextUsageMeter(parentEl);
   const externalContextSelector = new ExternalContextSelector(parentEl, callbacks);
   const mcpServerSelector = new McpServerSelector(parentEl);
+
+  // Ultracode toggle is per-tab; only created when the tab wires a handler
+  let ultracodeToggle: UltracodeToggle | undefined;
+  if (callbacks.onUltracodeChange) {
+    ultracodeToggle = new UltracodeToggle(parentEl, callbacks);
+  }
+
   const permissionToggle = new PermissionToggle(parentEl, callbacks);
 
-  return { modelSelector, thinkingBudgetSelector, contextUsageMeter, externalContextSelector, mcpServerSelector, permissionToggle, providerSelector };
+  return { modelSelector, thinkingBudgetSelector, contextUsageMeter, externalContextSelector, mcpServerSelector, permissionToggle, ultracodeToggle, providerSelector };
 }

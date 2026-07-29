@@ -76,6 +76,9 @@ export interface ChatStateData {
   /** Explicit per-tab provider selection; null = follow the global env/model defaults. */
   providerSelection: ProviderSelection | null;
 
+  /** Per-tab ultracode toggle (CLI --settings flag, baked at spawn). Default off. */
+  ultracode: boolean;
+
   // Queued message
   queuedMessage: QueuedMessage | null;
 
@@ -129,6 +132,7 @@ export interface ChatStateCallbacks {
   onStreamingStateChanged?: (isStreaming: boolean) => void;
   onConversationChanged?: (id: string | null) => void;
   onProviderSelectionChanged?: (selection: ProviderSelection | null) => void;
+  onUltracodeChanged?: (enabled: boolean) => void;
   onUsageChanged?: (usage: UsageInfo | null) => void;
   onTodosChanged?: (todos: TodoItem[] | null) => void;
   onAttentionChanged?: (needsAttention: boolean) => void;

@@ -1087,6 +1087,62 @@ describe('SessionStorage', () => {
     });
   });
 
+  describe('ultracode persistence', () => {
+    it('saves the per-tab ultracode flag in the meta record', async () => {
+      const conversation: Conversation = {
+        id: 'conv-ultra',
+        title: 'Ultracode Test',
+        createdAt: 1700000000,
+        updatedAt: 1700001000,
+        sessionId: null,
+        messages: [],
+        ultracode: true,
+      };
+
+      await storage.saveConversation(conversation);
+
+      const writtenContent = mockAdapter.write.mock.calls[0][1];
+      const meta = JSON.parse(writtenContent.split('\n')[0]);
+      expect(meta.ultracode).toBe(true);
+    });
+
+    it('loads the per-tab ultracode flag from the meta record', async () => {
+      const jsonlContent = '{"type":"meta","id":"conv-ultra","title":"Test","createdAt":1700000000,"updatedAt":1700001000,"sessionId":null,"ultracode":true}';
+
+      mockAdapter.exists.mockResolvedValue(true);
+      mockAdapter.read.mockResolvedValue(jsonlContent);
+
+      const result = await storage.loadConversation('conv-ultra');
+      expect(result?.ultracode).toBe(true);
+    });
+
+    it('defaults ultracode to undefined when absent from the meta record', async () => {
+      const jsonlContent = '{"type":"meta","id":"conv-plain","title":"Test","createdAt":1700000000,"updatedAt":1700001000,"sessionId":null}';
+
+      mockAdapter.exists.mockResolvedValue(true);
+      mockAdapter.read.mockResolvedValue(jsonlContent);
+
+      const result = await storage.loadConversation('conv-plain');
+      expect(result?.ultracode).toBeUndefined();
+    });
+
+    it('includes ultracode in toSessionMetadata', () => {
+      const conversation: Conversation = {
+        id: 'conv-ultra-meta',
+        title: 'Ultracode Metadata',
+        createdAt: 1700000000,
+        updatedAt: 1700001000,
+        sessionId: null,
+        messages: [],
+        ultracode: true,
+      };
+
+      const metadata = storage.toSessionMetadata(conversation);
+
+      expect(metadata.ultracode).toBe(true);
+    });
+  });
+
   describe('toSessionMetadata', () => {
     it('converts Conversation to SessionMetadata', () => {
       const usage: UsageInfo = {

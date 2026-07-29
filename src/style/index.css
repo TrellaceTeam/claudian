@@ -25,6 +25,7 @@
 @import "./toolbar/provider-selector.css";
 @import "./toolbar/thinking-selector.css";
 @import "./toolbar/permission-toggle.css";
+@import "./toolbar/ultracode-toggle.css";
 @import "./toolbar/external-context.css";
 @import "./toolbar/mcp-selector.css";
 

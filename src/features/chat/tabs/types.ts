@@ -30,6 +30,7 @@ import type {
   ProviderSelector,
   StatusPanel,
   ThinkingBudgetSelector,
+  UltracodeToggle,
 } from '../ui';
 import type { NavigationSidebar } from '../ui';
 
@@ -134,6 +135,7 @@ export interface TabUIComponents {
   externalContextSelector: ExternalContextSelector | null;
   mcpServerSelector: McpServerSelector | null;
   permissionToggle: PermissionToggle | null;
+  ultracodeToggle: UltracodeToggle | null;
   slashCommandDropdown: SlashCommandDropdown | null;
   instructionModeManager: InstructionModeManager | null;
   bangBashModeManager: BangBashModeManager | null;

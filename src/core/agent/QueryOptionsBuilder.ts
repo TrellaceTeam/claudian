@@ -15,6 +15,7 @@ import type {
   Options,
 } from '@anthropic-ai/claude-agent-sdk';
 
+import { isCustomProviderEnv } from '../../utils/env';
 import type { McpServerManager } from '../mcp';
 import type { PluginManager } from '../plugins';
 import { buildSystemPrompt, type SystemPromptSettings } from '../prompts/mainAgent';
@@ -50,6 +51,8 @@ export interface QueryOptionsContext {
   pluginManager: PluginManager;
   /** Optional per-tab model override (takes precedence over settings.model). */
   modelOverride?: string;
+  /** Per-tab ultracode toggle; passed to the CLI as --settings '{"ultracode":true}'. */
+  ultracode?: boolean;
 }
 
 /**
@@ -155,7 +158,11 @@ export class QueryOptionsBuilder {
 
     const budgetSetting = ctx.settings.thinkingBudget;
     const budgetConfig = THINKING_BUDGETS.find(b => b.value === budgetSetting);
-    const thinkingTokens = budgetConfig?.tokens ?? null;
+    // Custom providers never receive maxThinkingTokens (effort is driven by
+    // CLAUDE_CODE_EFFORT_LEVEL in the spawn env), so track null here.
+    const thinkingTokens = isCustomProviderEnv(ctx.customEnv)
+      ? null
+      : (budgetConfig?.tokens ?? null);
 
     // Compute disallowedToolsKey from all disabled MCP tools (pre-registered upfront)
     const allDisallowedTools = ctx.mcpManager.getAllDisallowedMcpTools();
@@ -218,7 +225,7 @@ export class QueryOptionsBuilder {
       options.betas = resolved.betas;
     }
 
-    QueryOptionsBuilder.applyExtraArgs(options, ctx.settings);
+    QueryOptionsBuilder.applyExtraArgs(options, ctx.settings, ctx.ultracode);
 
     options.disallowedTools = [
       ...ctx.mcpManager.getAllDisallowedMcpTools(),
@@ -227,7 +234,7 @@ export class QueryOptionsBuilder {
     ];
 
     QueryOptionsBuilder.applyPermissionMode(options, permissionMode, ctx.canUseTool);
-    QueryOptionsBuilder.applyThinkingBudget(options, ctx.settings.thinkingBudget);
+    QueryOptionsBuilder.applyThinkingBudget(options, ctx.settings.thinkingBudget, ctx.customEnv);
     options.hooks = ctx.hooks;
 
     options.enableFileCheckpointing = true;
@@ -290,7 +297,7 @@ export class QueryOptionsBuilder {
       options.betas = resolved.betas;
     }
 
-    QueryOptionsBuilder.applyExtraArgs(options, ctx.settings);
+    QueryOptionsBuilder.applyExtraArgs(options, ctx.settings, ctx.ultracode);
 
     const mcpMentions = ctx.mcpMentions || new Set<string>();
     const uiEnabledServers = ctx.enabledMcpServers || new Set<string>();
@@ -310,7 +317,7 @@ export class QueryOptionsBuilder {
 
     QueryOptionsBuilder.applyPermissionMode(options, permissionMode, ctx.canUseTool);
     options.hooks = ctx.hooks;
-    QueryOptionsBuilder.applyThinkingBudget(options, ctx.settings.thinkingBudget);
+    QueryOptionsBuilder.applyThinkingBudget(options, ctx.settings.thinkingBudget, ctx.customEnv);
 
     if (ctx.allowedTools !== undefined && ctx.allowedTools.length > 0) {
       options.tools = ctx.allowedTools;
@@ -348,21 +355,34 @@ export class QueryOptionsBuilder {
       options.permissionMode = 'bypassPermissions';
     } else if (permissionMode === 'plan') {
       options.permissionMode = 'plan';
+    } else if (permissionMode === 'default') {
+      options.permissionMode = 'default';
     } else {
       options.permissionMode = 'acceptEdits';
     }
   }
 
-  private static applyExtraArgs(options: Options, settings: ClaudianSettings): void {
+  private static applyExtraArgs(options: Options, settings: ClaudianSettings, ultracode?: boolean): void {
     if (settings.enableChrome) {
       options.extraArgs = { ...options.extraArgs, chrome: null };
+    }
+    if (ultracode) {
+      // SDK extraArgs serialize to `--settings <json>`; baked at spawn time.
+      options.extraArgs = { ...options.extraArgs, settings: JSON.stringify({ ultracode: true }) };
     }
   }
 
   private static applyThinkingBudget(
     options: Options,
-    budgetSetting: string
+    budgetSetting: string,
+    customEnv?: Record<string, string>
   ): void {
+    // Custom providers get CLAUDE_CODE_EFFORT_LEVEL via the spawn env instead.
+    // maxThinkingTokens is ignored there at best (DeepSeek) and sending
+    // thinking-disabled can hard-error thinking-mandatory models (Kimi).
+    if (customEnv && isCustomProviderEnv(customEnv)) {
+      return;
+    }
     const budgetConfig = THINKING_BUDGETS.find(b => b.value === budgetSetting);
     if (budgetConfig && budgetConfig.tokens > 0) {
       options.maxThinkingTokens = budgetConfig.tokens;

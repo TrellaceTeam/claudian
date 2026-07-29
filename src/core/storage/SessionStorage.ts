@@ -42,6 +42,7 @@ interface SessionMetaRecord {
   envVars?: string;
   model?: string;
   lastEnvHash?: string;
+  ultracode?: boolean;
 }
 
 /** Message record stored as subsequent lines. */
@@ -235,6 +236,7 @@ export class SessionStorage {
       envVars: meta.envVars,
       model: meta.model,
       lastEnvHash: meta.lastEnvHash,
+      ultracode: meta.ultracode,
     };
   }
 
@@ -257,6 +259,7 @@ export class SessionStorage {
       envVars: conversation.envVars,
       model: conversation.model,
       lastEnvHash: conversation.lastEnvHash,
+      ultracode: conversation.ultracode,
     };
     lines.push(JSON.stringify(meta));
 
@@ -417,6 +420,7 @@ export class SessionStorage {
       envVars: conversation.envVars,
       model: conversation.model,
       lastEnvHash: conversation.lastEnvHash,
+      ultracode: conversation.ultracode,
     };
   }
 

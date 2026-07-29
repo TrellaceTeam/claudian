@@ -262,6 +262,16 @@ describe('QueryOptionsBuilder', () => {
 
       expect(config.model).toBe('deepseek-v4-pro');
     });
+
+    it('tracks null thinking tokens for custom providers (effort is env-driven)', () => {
+      const ctx = createMockContext({
+        settings: createMockSettings({ thinkingBudget: 'high' }),
+        customEnv: { ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic' },
+      });
+      const config = QueryOptionsBuilder.buildPersistentQueryConfig(ctx);
+
+      expect(config.thinkingTokens).toBeNull();
+    });
   });
 
   describe('buildPersistentQueryOptions', () => {
@@ -351,6 +361,88 @@ describe('QueryOptionsBuilder', () => {
       const options = QueryOptionsBuilder.buildPersistentQueryOptions(ctx);
 
       expect(options.maxThinkingTokens).toBe(16000);
+    });
+
+    it('does not set maxThinkingTokens for custom providers', () => {
+      const ctx = {
+        ...createMockContext({
+          settings: createMockSettings({ thinkingBudget: 'high' }),
+          customEnv: { ANTHROPIC_BASE_URL: 'https://api.moonshot.cn/anthropic' },
+        }),
+        abortController: new AbortController(),
+        hooks: {},
+      };
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions(ctx);
+
+      expect(options.maxThinkingTokens).toBeUndefined();
+    });
+
+    it('still sets maxThinkingTokens for native Claude', () => {
+      const ctx = {
+        ...createMockContext({
+          settings: createMockSettings({ thinkingBudget: 'high' }),
+          customEnv: { ANTHROPIC_API_KEY: 'sk-ant-test' },
+        }),
+        abortController: new AbortController(),
+        hooks: {},
+      };
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions(ctx);
+
+      expect(options.maxThinkingTokens).toBe(16000);
+    });
+
+    it('sets default mode options correctly', () => {
+      const canUseTool = jest.fn();
+      const ctx = {
+        ...createMockContext({
+          settings: createMockSettings({ permissionMode: 'default' }),
+        }),
+        abortController: new AbortController(),
+        hooks: {},
+        canUseTool,
+      };
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions(ctx);
+
+      expect(options.permissionMode).toBe('default');
+      expect(options.allowDangerouslySkipPermissions).toBe(true);
+      expect(options.canUseTool).toBe(canUseTool);
+    });
+
+    it('sets extraArgs with settings flag when ultracode is enabled', () => {
+      const ctx = {
+        ...createMockContext({ ultracode: true }),
+        abortController: new AbortController(),
+        hooks: {},
+      };
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions(ctx);
+
+      expect(options.extraArgs?.settings).toBe('{"ultracode":true}');
+    });
+
+    it('does not set settings extraArgs when ultracode is disabled', () => {
+      const ctx = {
+        ...createMockContext(),
+        abortController: new AbortController(),
+        hooks: {},
+      };
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions(ctx);
+
+      expect(options.extraArgs?.settings).toBeUndefined();
+    });
+
+    it('combines ultracode and chrome extraArgs', () => {
+      const ctx = {
+        ...createMockContext({
+          settings: createMockSettings({ enableChrome: true }),
+          ultracode: true,
+        }),
+        abortController: new AbortController(),
+        hooks: {},
+      };
+      const options = QueryOptionsBuilder.buildPersistentQueryOptions(ctx);
+
+      expect(options.extraArgs?.chrome).toBeNull();
+      expect(options.extraArgs?.settings).toBe('{"ultracode":true}');
     });
 
     it('sets resume session ID when provided', () => {
@@ -648,6 +740,33 @@ describe('QueryOptionsBuilder', () => {
       const options = QueryOptionsBuilder.buildColdStartQueryOptions(ctx);
 
       expect(options.extraArgs).toBeUndefined();
+    });
+
+    it('sets extraArgs with settings flag when ultracode is enabled', () => {
+      const ctx = {
+        ...createMockContext({ ultracode: true }),
+        abortController: new AbortController(),
+        hooks: {},
+        hasEditorContext: false,
+      };
+      const options = QueryOptionsBuilder.buildColdStartQueryOptions(ctx);
+
+      expect(options.extraArgs?.settings).toBe('{"ultracode":true}');
+    });
+
+    it('does not set maxThinkingTokens for custom providers', () => {
+      const ctx = {
+        ...createMockContext({
+          settings: createMockSettings({ thinkingBudget: 'high' }),
+          customEnv: { ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic' },
+        }),
+        abortController: new AbortController(),
+        hooks: {},
+        hasEditorContext: false,
+      };
+      const options = QueryOptionsBuilder.buildColdStartQueryOptions(ctx);
+
+      expect(options.maxThinkingTokens).toBeUndefined();
     });
 
     it('sets additionalDirectories when externalContextPaths provided', () => {

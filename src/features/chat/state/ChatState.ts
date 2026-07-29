@@ -22,6 +22,7 @@ function createInitialState(): ChatStateData {
     isSwitchingConversation: false,
     currentConversationId: null,
     providerSelection: null,
+    ultracode: false,
     queuedMessage: null,
     currentContentEl: null,
     currentTextEl: null,
@@ -165,6 +166,19 @@ export class ChatState {
   set providerSelection(value: ProviderSelection | null) {
     this.state.providerSelection = value;
     this._callbacks.onProviderSelectionChanged?.(value);
+  }
+
+  // ============================================
+  // Per-Tab Ultracode Toggle
+  // ============================================
+
+  get ultracode(): boolean {
+    return this.state.ultracode;
+  }
+
+  set ultracode(value: boolean) {
+    this.state.ultracode = value;
+    this._callbacks.onUltracodeChanged?.(value);
   }
 
   // ============================================

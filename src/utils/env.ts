@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import type { ThinkingBudget } from '../core/types';
 import { parsePathEntries, resolveNvmDefaultBin } from './path';
 
 const isWindows = process.platform === 'win32';
@@ -319,6 +320,28 @@ const CUSTOM_MODEL_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 ] as const;
+
+/**
+ * True when the env routes the CLI to a custom provider (Anthropic base URL
+ * overridden). Native Claude has no base-URL override.
+ */
+export function isCustomProviderEnv(envVars: Record<string, string>): boolean {
+  return !!envVars.ANTHROPIC_BASE_URL?.trim();
+}
+
+/**
+ * Maps Thinking selector levels onto CLAUDE_CODE_EFFORT_LEVEL for custom
+ * providers, which ignore the Anthropic maxThinkingTokens knob (DeepSeek) or
+ * hard-error on thinking-disabled (Kimi). The bundled CLI validates the var
+ * against ["low", "medium", "high", "max"]. 'off' maps to undefined (unset).
+ */
+export const THINKING_BUDGET_EFFORT_LEVELS: Record<ThinkingBudget, string | undefined> = {
+  off: undefined,
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'max',
+};
 
 function getModelTypeFromEnvKey(envKey: string): string {
   if (envKey === 'ANTHROPIC_MODEL') return 'model';
